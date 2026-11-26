@@ -1,0 +1,19 @@
+{
+  "name": "JurisLab — Jurisprudência",
+  "short_name": "JurisLab",
+  "description": "Busca, leitura e organização de jurisprudência.",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0a0a0c",
+  "icons": [
+    {
+      "src": "/static/assets/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

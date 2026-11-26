@@ -1,0 +1,28 @@
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Python / ferramentas
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Configuracao local e arquivos sensíveis (nao versionar!)
+.env
+*.log
+.DS_Store
+
+# Dados: versiona apenas exemplos e modelos de mapeamento
+dados/*
+!dados/exemplo.jsonl
+!dados/*.example.*
+
+# Dependencias de front-end (o projeto usa JS puro, mas previne acidentes)
+frontend/node_modules/
+
+# Cobertura de testes
+coverage.xml
+.coverage

@@ -1,0 +1,26 @@
+# Arquivos que nao devem entrar no contexto de build do Docker.
+# Observacao: quando o contexto e `./backend` (como no docker-compose.yml),
+# o Docker le `backend/.dockerignore`. Este arquivo cobre builds feitos da raiz.
+
+.git/
+.github/
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Segredos e arquivos locais
+.env
+*.log
+.DS_Store
+
+# Dados e documentacao historica nao sao necessarios na imagem da API
+dados/
+docs/
+*.md
+coverage.xml
+.coverage

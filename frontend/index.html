@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a0a0c">
+  <meta name="description" content="JurisLab — busca, leitura e organização de jurisprudência.">
+  <title>JurisLab · Jurisprudência</title>
+
+  <link rel="icon" type="image/svg+xml" href="/static/assets/favicon.svg">
+  <link rel="manifest" href="/static/assets/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/css/styles.css">
+  <script src="/static/js/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+
+  <header class="topbar">
+    <div class="brand">
+      <img src="/static/assets/favicon.svg" alt="" width="34" height="34">
+      <span class="brand-nome">Juris<strong>Lab</strong></span>
+      <span class="brand-tag">Jurisprudência</span>
+    </div>
+
+    <form class="search" id="formBusca" role="search">
+      <label class="sr-only" for="q">Buscar decisões</label>
+      <svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>
+      </svg>
+      <input id="q" type="search" placeholder='Buscar: "frase exata", OR, -exclusão' autocomplete="off" spellcheck="false">
+      <kbd class="search-kbd" aria-hidden="true">/</kbd>
+      <button class="btn btn-primary" type="submit" id="btnBuscar">Buscar</button>
+    </form>
+
+    <button class="btn btn-ghost btn-filtros" id="btnFiltros" type="button"
+            aria-expanded="false" aria-controls="filtros" aria-label="Abrir filtros">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 7h16M7 12h10M10 17h4"></path>
+      </svg>
+      <span>Filtros</span>
+    </button>
+  </header>
+
+  <div class="app">
+    <aside class="sidebar" id="filtros" aria-label="Filtros e coleções">
+      <div class="sidebar-scroll">
+        <section class="box">
+          <div class="box-head">
+            <h2 class="box-titulo">Filtros</h2>
+            <button class="btn-link" type="button" data-action="limpar">Limpar</button>
+          </div>
+
+          <div class="campo">
+            <label for="fTribunal">Tribunal</label>
+            <select id="fTribunal" multiple aria-describedby="tribunalAjuda"></select>
+            <p class="ajuda" id="tribunalAjuda">Segure Ctrl ou ⌘ para selecionar vários.</p>
+          </div>
+          <div class="campo">
+            <label for="fTipo">Tipo de decisão</label>
+            <select id="fTipo">
+              <option value="">Todos</option>
+              <option value="acordao">Acórdão</option>
+              <option value="decisao_monocratica">Decisão monocrática</option>
+              <option value="sumula">Súmula</option>
+              <option value="sumula_vinculante">Súmula vinculante</option>
+              <option value="repercussao_geral">Repercussão geral</option>
+              <option value="recurso_repetitivo">Recurso repetitivo</option>
+              <option value="iac">IAC</option>
+              <option value="irdr">IRDR</option>
+            </select>
+          </div>
+          <div class="campo">
+            <label for="fStatus">Vigência</label>
+            <select id="fStatus">
+              <option value="">Qualquer</option>
+              <option value="vigente">Vigente</option>
+              <option value="superada">Superada</option>
+              <option value="revogada">Revogada</option>
+            </select>
+          </div>
+          <div class="campo">
+            <label for="fRelator">Relator</label>
+            <input type="text" id="fRelator" placeholder="Nome do relator">
+          </div>
+          <div class="campo">
+            <label for="fIni">Julgado a partir de</label>
+            <input type="date" id="fIni">
+          </div>
+          <div class="campo">
+            <label for="fFim">Julgado até</label>
+            <input type="date" id="fFim">
+          </div>
+          <div class="campo">
+            <label for="fOrdem">Ordenar por</label>
+            <select id="fOrdem">
+              <option value="relevancia">Relevância</option>
+              <option value="data_desc">Mais recentes</option>
+              <option value="data_asc">Mais antigas</option>
+            </select>
+          </div>
+
+          <div class="linha">
+            <button class="btn btn-outline btn-bloco" type="button" id="btnSalvarBusca"
+                    data-action="alternar-busca" aria-expanded="false" aria-controls="formNovaBusca">
+              Salvar busca
+            </button>
+          </div>
+          <form class="inline-form" id="formNovaBusca" hidden>
+            <label class="sr-only" for="nomeBusca">Nome da busca salva</label>
+            <input type="text" id="nomeBusca" placeholder="Ex.: danos morais STJ" required>
+            <div class="linha">
+              <button class="btn btn-primary" type="submit">Salvar</button>
+              <button class="btn btn-ghost" type="button" data-action="cancelar-busca">Cancelar</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="box">
+          <div class="box-head">
+            <h2 class="box-titulo">Meus itens</h2>
+          </div>
+          <ul class="side-list" id="sideFav"></ul>
+        </section>
+
+        <section class="box">
+          <div class="box-head">
+            <h2 class="box-titulo">Pastas</h2>
+            <button class="btn-icone" type="button" id="btnNovaPasta" data-action="alternar-pasta"
+                    aria-expanded="false" aria-controls="formNovaPasta" aria-label="Criar nova pasta" title="Nova pasta">+</button>
+          </div>
+          <form class="inline-form" id="formNovaPasta" hidden>
+            <label class="sr-only" for="nomePasta">Nome da nova pasta</label>
+            <input type="text" id="nomePasta" placeholder="Nome da pasta" required>
+            <div class="linha">
+              <button class="btn btn-primary" type="submit">Criar</button>
+              <button class="btn btn-ghost" type="button" data-action="cancelar-pasta">Cancelar</button>
+            </div>
+          </form>
+          <ul class="side-list" id="sidePastas"></ul>
+        </section>
+
+        <section class="box">
+          <div class="box-head"><h2 class="box-titulo">Tags</h2></div>
+          <ul class="side-list" id="sideTags"></ul>
+        </section>
+
+        <section class="box">
+          <div class="box-head"><h2 class="box-titulo">Buscas salvas</h2></div>
+          <ul class="side-list" id="sideBuscas"></ul>
+        </section>
+      </div>
+    </aside>
+
+    <div class="overlay overlay-filtros" id="overlayFiltros" hidden></div>
+
+    <main id="conteudo">
+      <section class="hero" id="hero" aria-labelledby="heroTitulo">
+        <p class="eyebrow">Biblioteca jurisprudencial</p>
+        <h1 id="heroTitulo">Decisões que orientam <em>a sua argumentação.</em></h1>
+        <p class="hero-descricao">
+          Busque por trechos, teses e votos. Filtre por tribunal, vigência e relator —
+          e organize tudo em pastas, tags e anotações.
+        </p>
+        <div class="stats" id="estatisticas" aria-busy="true" aria-label="Estatísticas da base">
+          <article class="stat"><span class="skeleton sk-num"></span><span class="skeleton sk-linha"></span></article>
+          <article class="stat"><span class="skeleton sk-num"></span><span class="skeleton sk-linha"></span></article>
+          <article class="stat"><span class="skeleton sk-num"></span><span class="skeleton sk-linha"></span></article>
+        </div>
+      </section>
+
+      <section class="resultados-secao" aria-labelledby="resultadosTitulo">
+        <div class="resultados-cabecalho">
+          <div>
+            <h2 class="secao-titulo" id="resultadosTitulo">Resultados</h2>
+            <p class="resumo" id="resumo" aria-live="polite">Carregando decisões…</p>
+          </div>
+          <p class="escopo" id="escopo"></p>
+        </div>
+
+        <div class="chips-ativos" id="chipsAtivos" aria-label="Filtros ativos"></div>
+
+        <div class="lista-resultados" id="resultados" aria-busy="true"></div>
+        <nav class="pager" id="pager" aria-label="Paginação dos resultados"></nav>
+      </section>
+    </main>
+  </div>
+
+  <div class="overlay overlay-painel" id="overlayPainel" hidden></div>
+  <aside class="painel" id="painel" role="dialog" aria-modal="true" aria-labelledby="painelTitulo" aria-hidden="true">
+    <div class="painel-in" id="painelIn"></div>
+  </aside>
+
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+</body>
+</html>

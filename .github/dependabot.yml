@@ -1,0 +1,23 @@
+# Atualizacoes automaticas de dependencias (semanal).
+version: 2
+
+updates:
+  # Dependencias Python do backend (requirements.txt e requirements-dev.txt).
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+
+  # Acoes usadas nos workflows do GitHub Actions.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
