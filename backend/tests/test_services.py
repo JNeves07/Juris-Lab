@@ -137,7 +137,16 @@ def test_parametros_isolados_entre_builders():
 
 
 def test_termo_para_like_remove_operadores():
-    assert services.termo_para_like('"frase exata" -excluir OR alvo') == "frase exata alvo"
+    assert services.termo_para_like('"frase exata" -excluir OU alvo') == "frase exata alvo"
+
+
+def test_normalizar_consulta_aceita_ou():
+    assert services.normalizar_consulta("dano OU prejuízo") == "dano OR prejuízo"
+
+
+def test_busca_com_ou_usa_or_no_tsquery():
+    _, params = services.construir_consulta_busca(texto="dano ou prejuízo")
+    assert params["q"] == "dano OR prejuízo"
 
 
 def test_busca_texto_tambem_encontra_metadados():

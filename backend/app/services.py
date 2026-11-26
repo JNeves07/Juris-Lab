@@ -48,8 +48,13 @@ def termo_para_like(texto: str) -> str:
     """Remove operadores da busca para casar metadados como número do processo."""
     limpo = re.sub(r"-\S+", " ", texto or "")
     limpo = limpo.replace('"', " ")
-    limpo = re.sub(r"\b(?:or|and)\b", " ", limpo, flags=re.IGNORECASE)
+    limpo = re.sub(r"\b(?:or|and|ou)\b", " ", limpo, flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", limpo).strip()
+
+
+def normalizar_consulta(texto: str) -> str:
+    """Aceita `OU` como sinônimo de `OR` na sintaxe do PostgreSQL."""
+    return re.sub(r"\bou\b", "OR", texto or "", flags=re.IGNORECASE)
 
 
 def sql_headline(tem_texto: bool) -> str:
@@ -106,12 +111,13 @@ def construir_filtros_busca(
     where = ["1=1"]
     params: dict[str, Any] = {"cfg": CONFIG}
     tem_texto = bool((texto or "").strip())
+    consulta = normalizar_consulta(texto) if tem_texto else ""
 
     if tem_texto:
         # O índice textual cobre ementa/tese/inteiro teor; metadados entram por LIKE
         # para que "REsp 1000001/SP" ou o nome do relator também encontrem a decisão.
         clausula = "d.busca @@ websearch_to_tsquery(%(cfg)s::regconfig, %(q)s)"
-        termo_like = termo_para_like(texto)
+        termo_like = termo_para_like(consulta)
         if termo_like:
             clausula = (
                 f"({clausula} OR d.numero_processo ILIKE %(like_q)s"
@@ -121,7 +127,7 @@ def construir_filtros_busca(
             )
             params["like_q"] = f"%{termo_like}%"
         where.append(clausula)
-        params["q"] = texto
+        params["q"] = consulta
     if tribunal:
         where.append("t.sigla = ANY(%(tribunal)s)")
         params["tribunal"] = list(tribunal)

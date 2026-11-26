@@ -14,7 +14,7 @@
 
 Decisões judiciais estão espalhadas em portais diferentes, com formatos, vocabulários e filtros incompatíveis. Quem pesquisa jurisprudência todo dia precisa de três coisas que os buscadores genéricos não entregam bem:
 
-1. **Busca em linguagem natural em português**, com frase exata, `OR` e exclusão, que ignore acentos e ordene por relevância jurídica (ementa > tese > inteiro teor).
+1. **Busca em linguagem natural em português**, com frase exata, `OU` (ou `OR`) e exclusão, que ignore acentos e ordene por relevância jurídica (ementa > tese > inteiro teor).
 2. **Escala**: um acervo com milhões de decisões em um único banco, sem custo de infraestrutura de busca externa.
 3. **Curadoria pessoal**: pastas, tags, favoritos, anotações, relações entre precedentes e controle de vigência — sem depender de um serviço de terceiros.
 
@@ -22,7 +22,7 @@ O Juris-Lab resolve isso com um PostgreSQL 16 + pgvector, uma API FastAPI enxuta
 
 ## Funcionalidades
 
-- **Busca full-text** com `websearch_to_tsquery` e configuração `pt_unaccent`: `"frase exata"`, `termo1 OR termo2`, `-excluir`, ordenação por relevância ou data e destaque do trecho encontrado.
+- **Busca full-text** com `websearch_to_tsquery` e configuração `pt_unaccent`: `"frase exata"`, `termo1 OU termo2` (`OR` também funciona), `-excluir`, ordenação por relevância ou data e destaque do trecho encontrado.
 - **Filtros combináveis**: tribunal, ramo, tipo de decisão, relator, período, vigência, pasta, tag, favoritos e paginação.
 - **Leitura completa** da decisão com metadados, órgão julgador, anotações, tags, pastas, relações e histórico de alterações.
 - **Importação em massa** de JSONL ou CSV, com mapeamento de colunas (`--mapa`), lotes configuráveis (`--lote`) e simulação sem gravar (`--dry-run`).
@@ -213,7 +213,7 @@ curl http://localhost:8000/healthz
 
 # Busca com frase exata, filtro de tribunal e paginação
 curl -G http://localhost:8000/api/busca \
-  --data-urlencode 'q="responsabilidade objetiva" OR "dano moral" -prescrição' \
+  --data-urlencode 'q="responsabilidade objetiva" OU "dano moral" -prescrição' \
   --data-urlencode 'tribunal=STJ' \
   --data-urlencode 'ordem=relevancia' \
   --data-urlencode 'pagina=1' \
@@ -259,9 +259,9 @@ A busca usa `websearch_to_tsquery` com o dicionário `pt_unaccent`, então `cont
 | --- | --- | --- |
 | Termos livres | `dano moral consumidor` | todos os termos (AND implícito) |
 | Frase exata | `"dano moral"` | termos adjacentes, na ordem |
-| Alternativa | `dano OR prejuízo` | qualquer um dos termos |
+| Alternativa | `dano OU prejuízo` | qualquer um dos termos (`OR` também é aceito) |
 | Exclusão | `dano -prescrição` | remove decisões com o termo excluído |
-| Combinação | `"frase exata" OR termo -excluir` | combinações das regras acima |
+| Combinação | `"frase exata" OU termo -excluir` | combinações das regras acima |
 
 Ordenação por relevância pondera mais a ementa, depois a tese e por fim o inteiro teor. A busca também cas número do processo, número CNJ, classe e relator por `ILIKE`, então `REsp 1000001/SP` encontra a decisão mesmo sem estar no texto da ementa. A contagem para em 10.000 resultados (`total_truncado: true`) para manter a resposta rápida mesmo com milhões de decisões.
 

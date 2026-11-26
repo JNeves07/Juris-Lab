@@ -13,7 +13,7 @@ router = APIRouter()
 
 @router.get("/api/busca")
 def busca(
-    q_: str = Query("", alias="q", description="Texto da busca (aceita aspas, OR e -exclusão)"),
+    q_: str = Query("", alias="q", description='Texto da busca (aceita aspas, "OU"/"OR" e "-excluir")'),
     tribunal: list[str] | None = Query(None),  # noqa: B008 (padrão FastAPI)
     ramo: str | None = None,
     tipo: str | None = None,
