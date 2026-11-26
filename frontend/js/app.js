@@ -372,12 +372,13 @@ function limparFiltros() {
 
 async function alternarFormulario(botao, formId, abrir) {
   const form = $("#" + formId);
-  form.hidden = abrir;
+  form.hidden = !abrir;
   botao.setAttribute("aria-expanded", String(abrir));
   if (abrir) {
     $("input", form)?.focus();
   } else {
-    $("input", form).value = "";
+    const campo = $("input", form);
+    if (campo) campo.value = "";
   }
 }
 

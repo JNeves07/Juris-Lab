@@ -134,3 +134,20 @@ def test_parametros_isolados_entre_builders():
     assert "limite_contagem" not in params_pagina
     assert "offset" not in params_contagem
     assert sql_contagem != sql_pagina
+
+
+def test_termo_para_like_remove_operadores():
+    assert services.termo_para_like('"frase exata" -excluir OR alvo') == "frase exata alvo"
+
+
+def test_busca_texto_tambem_encontra_metadados():
+    sql, params = services.construir_consulta_busca(texto="REsp 1000001/SP")
+    assert "d.numero_processo ILIKE %(like_q)s" in sql
+    assert "d.numero_cnj ILIKE %(like_q)s" in sql
+    assert "d.relator ILIKE %(like_q)s" in sql
+    assert params["like_q"] == "%REsp 1000001/SP%"
+
+
+def test_busca_sem_fallback_like_quando_so_operadores():
+    _, params = services.construir_consulta_busca(texto="-somente")
+    assert "like_q" not in params

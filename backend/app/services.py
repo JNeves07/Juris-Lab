@@ -44,6 +44,14 @@ def validar_periodo(data_ini: date | str | None, data_fim: date | str | None) ->
         raise ValueError("Data inicial não pode ser maior que a data final.")
 
 
+def termo_para_like(texto: str) -> str:
+    """Remove operadores da busca para casar metadados como número do processo."""
+    limpo = re.sub(r"-\S+", " ", texto or "")
+    limpo = limpo.replace('"', " ")
+    limpo = re.sub(r"\b(?:or|and)\b", " ", limpo, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", limpo).strip()
+
+
 def sql_headline(tem_texto: bool) -> str:
     """Expressão SQL do trecho destacado (com `<mark>` quando há busca)."""
     if tem_texto:
@@ -100,7 +108,19 @@ def construir_filtros_busca(
     tem_texto = bool((texto or "").strip())
 
     if tem_texto:
-        where.append("d.busca @@ websearch_to_tsquery(%(cfg)s::regconfig, %(q)s)")
+        # O índice textual cobre ementa/tese/inteiro teor; metadados entram por LIKE
+        # para que "REsp 1000001/SP" ou o nome do relator também encontrem a decisão.
+        clausula = "d.busca @@ websearch_to_tsquery(%(cfg)s::regconfig, %(q)s)"
+        termo_like = termo_para_like(texto)
+        if termo_like:
+            clausula = (
+                f"({clausula} OR d.numero_processo ILIKE %(like_q)s"
+                " OR d.numero_cnj ILIKE %(like_q)s"
+                " OR d.classe ILIKE %(like_q)s"
+                " OR d.relator ILIKE %(like_q)s)"
+            )
+            params["like_q"] = f"%{termo_like}%"
+        where.append(clausula)
         params["q"] = texto
     if tribunal:
         where.append("t.sigla = ANY(%(tribunal)s)")

@@ -62,6 +62,21 @@ def test_busca_formato_e_truncamento(cliente, monkeypatch):
     assert corpo["itens"] == []
 
 
+def test_busca_repassa_texto_e_like_ao_banco(cliente, monkeypatch):
+    chamadas: list[dict[str, Any]] = []
+
+    def executar(sql, params=None, one=False, write=False):
+        chamadas.append(dict(params or {}))
+        return {"n": 1} if one and "count(*)" in sql else []
+
+    monkeypatch.setattr(db, "q", executar)
+    resposta = cliente.get("/api/busca", params={"q": "REsp 1000001/SP"})
+    assert resposta.status_code == 200
+    assert chamadas
+    assert all(c["q"] == "REsp 1000001/SP" for c in chamadas)
+    assert all(c["like_q"] == "%REsp 1000001/SP%" for c in chamadas)
+
+
 def test_busca_sem_truncamento(cliente, monkeypatch):
     monkeypatch.setattr(
         db, "q", fake_q([("SELECT count(*) AS n FROM (SELECT 1", {"n": 3})])

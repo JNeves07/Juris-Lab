@@ -263,7 +263,7 @@ A busca usa `websearch_to_tsquery` com o dicionário `pt_unaccent`, então `cont
 | Exclusão | `dano -prescrição` | remove decisões com o termo excluído |
 | Combinação | `"frase exata" OR termo -excluir` | combinações das regras acima |
 
-Ordenação por relevância pondera mais a ementa, depois a tese e por fim o inteiro teor. A contagem para em 10.000 resultados (`total_truncado: true`) para manter a resposta rápida mesmo com milhões de decisões.
+Ordenação por relevância pondera mais a ementa, depois a tese e por fim o inteiro teor. A busca também cas número do processo, número CNJ, classe e relator por `ILIKE`, então `REsp 1000001/SP` encontra a decisão mesmo sem estar no texto da ementa. A contagem para em 10.000 resultados (`total_truncado: true`) para manter a resposta rápida mesmo com milhões de decisões.
 
 ## Organização pessoal
 
