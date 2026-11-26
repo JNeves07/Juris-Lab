@@ -1,0 +1,2 @@
+# Instalado pelo runtime @vercel/python na raiz do projeto.
+-r backend/requirements.txt
