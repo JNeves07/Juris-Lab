@@ -238,6 +238,112 @@ def _dry_run(arquivo: Path, mapa: dict | None, tamanho_lote: int) -> None:
     )
 
 
+def gravar_local(
+    registros: list[dict],
+    tribunal: str,
+    fonte: str,
+    caminho: str | None = None,
+) -> dict:
+    """Faz o upsert no SQLite local (modo sem servidor de banco)."""
+    from app import loja
+
+    loja.iniciar(caminho, sementar=False)
+    sigla = (tribunal or "").strip().upper()
+    trib = loja.q("SELECT id FROM tribunais WHERE sigla=%s", (sigla,), one=True)
+    if not trib:
+        raise ValueError(f"Tribunal '{tribunal}' não existe em `tribunais`.")
+
+    tribunal_id = trib["id"]
+    inseridas = atualizadas = ignoradas = 0
+    for registro in registros:
+        if not registro:
+            continue
+        atual = loja.q(
+            "SELECT hash_conteudo FROM decisoes WHERE tribunal_id=%s AND fonte_id=%s",
+            (tribunal_id, registro["fonte_id"]),
+            one=True,
+        )
+        orgao_id = None
+        if registro["orgao_julgador"]:
+            loja.q(
+                "INSERT OR IGNORE INTO orgaos_julgadores (tribunal_id, nome) VALUES (%s,%s)",
+                (tribunal_id, registro["orgao_julgador"]),
+                write=True,
+            )
+            orgao = loja.q(
+                "SELECT id FROM orgaos_julgadores WHERE tribunal_id=%s AND nome=%s",
+                (tribunal_id, registro["orgao_julgador"]),
+                one=True,
+            )
+            orgao_id = orgao["id"] if orgao else None
+
+        loja.q(
+            """INSERT INTO decisoes (
+                   tribunal_id, orgao_julgador_id, tipo, numero_processo, numero_cnj, classe,
+                   relator, data_julgamento, data_publicacao, ementa, inteiro_teor, tese,
+                   legislacao_citada, fonte, fonte_id, fonte_url, hash_conteudo,
+                   busca, coletado_em
+               ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (tribunal_id, fonte_id) DO UPDATE SET
+                   tipo=excluded.tipo, numero_processo=excluded.numero_processo,
+                   numero_cnj=excluded.numero_cnj, classe=excluded.classe,
+                   relator=excluded.relator, data_julgamento=excluded.data_julgamento,
+                   data_publicacao=excluded.data_publicacao, ementa=excluded.ementa,
+                   inteiro_teor=excluded.inteiro_teor, tese=excluded.tese,
+                   legislacao_citada=excluded.legislacao_citada, fonte_url=excluded.fonte_url,
+                   hash_conteudo=excluded.hash_conteudo, busca=excluded.busca,
+                   coletado_em=excluded.coletado_em
+               WHERE decisoes.hash_conteudo <> excluded.hash_conteudo""",
+            (
+                tribunal_id,
+                orgao_id,
+                registro["tipo"],
+                registro["numero_processo"],
+                registro["numero_cnj"],
+                registro["classe"],
+                registro["relator"],
+                registro["data_julgamento"],
+                registro["data_publicacao"],
+                registro["ementa"],
+                registro["inteiro_teor"],
+                registro["tese"],
+                registro["legislacao_citada"],
+                fonte,
+                registro["fonte_id"],
+                registro["fonte_url"],
+                registro["hash_conteudo"],
+                "\x1f".join(
+                    filter(
+                        None,
+                        [registro["ementa"], registro["tese"], registro["inteiro_teor"]],
+                    )
+                ),
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+            write=True,
+        )
+        alteradas = int((loja.q("SELECT changes() AS n", one=True) or {}).get("n", 0))
+        if not alteradas:
+            ignoradas += 1
+        elif atual is None:
+            inseridas += 1
+        else:
+            atualizadas += 1
+
+    agora = datetime.now().isoformat(timespec="seconds")
+    loja.q(
+        """INSERT INTO coletas (fonte, iniciada_em, finalizada_em, inseridas, atualizadas, ignoradas)
+           VALUES (%s,%s,%s,%s,%s,%s)""",
+        (fonte, agora, agora, inseridas, atualizadas, ignoradas),
+        write=True,
+    )
+    return {
+        "inseridas": inseridas,
+        "atualizadas": atualizadas,
+        "ignoradas": ignoradas,
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI de importação, com validação de arquivo e opção de simulação."""
     ap = argparse.ArgumentParser(
@@ -248,6 +354,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--fonte", required=True, help="Nome da origem, ex.: 'STJ dados abertos'")
     ap.add_argument("--mapa", help="JSON {campo_banco: coluna_do_arquivo}")
     ap.add_argument("--lote", type=int, default=LOTE_PADRAO, help="Registros por carga (padrão: 5000)")
+    ap.add_argument(
+        "--modo",
+        choices=("auto", "postgres", "sqlite"),
+        default="auto",
+        help="Destino dos dados (padrão: sqlite se JLS_MODE=sqlite, senão postgres)",
+    )
     ap.add_argument("--dry-run", action="store_true", help="Normaliza e reporta sem gravar")
     args = ap.parse_args(argv)
 
@@ -270,6 +382,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.dry_run:
         print("Dry-run: nenhuma alteração será gravada.", flush=True)
         _dry_run(arquivo, mapa, args.lote)
+        return 0
+
+    modo = args.modo
+    if modo == "auto":
+        modo = "sqlite" if os.environ.get("JLS_MODE", "").lower() == "sqlite" else "postgres"
+
+    if modo == "sqlite":
+        registros = [normalizar(bruto, mapa) for bruto in ler_arquivo(arquivo)]
+        try:
+            resultado = gravar_local(registros, args.tribunal, args.fonte, os.environ.get("JLS_DB_PATH"))
+        except ValueError as exc:
+            sys.exit(str(exc))
+        print(
+            "Concluído (SQLite): {inseridas:,} inseridas, {atualizadas:,} atualizadas, "
+            "{ignoradas:,} inalteradas.".format(**resultado),
+            flush=True,
+        )
         return 0
 
     try:

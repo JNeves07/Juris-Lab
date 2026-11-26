@@ -2,376 +2,327 @@
 
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![SQLite](https://img.shields.io/badge/SQLite-integrado-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
-[![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)](https://docs.github.com/actions)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
+[![Vercel](https://img.shields.io/badge/Vercel-serverless-000000?logo=vercel&logoColor=white)](https://vercel.com/)
+[![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)](https://github.com/JNeves07/Juris-Lab/actions)
 
-**Seu laboratório pessoal de jurisprudência: busca rápida em português, organização própria e rastreabilidade da fonte oficial.**
+**Seu laboratório pessoal de jurisprudência: busca em português, leitura rastreável e organização própria — funcionando logo após o clone, sem configurar banco.**
 
 ---
 
-## O problema
+## Visão geral
 
-Decisões judiciais estão espalhadas em portais diferentes, com formatos, vocabulários e filtros incompatíveis. Quem pesquisa jurisprudência todo dia precisa de três coisas que os buscadores genéricos não entregam bem:
+Decisões judiciais ficam espalhadas em portais com formatos e filtros incompatíveis. O Juris-Lab reúne em um único lugar:
 
-1. **Busca em linguagem natural em português**, com frase exata, `OU` (ou `OR`) e exclusão, que ignore acentos e ordene por relevância jurídica (ementa > tese > inteiro teor).
-2. **Escala**: um acervo com milhões de decisões em um único banco, sem custo de infraestrutura de busca externa.
-3. **Curadoria pessoal**: pastas, tags, favoritos, anotações, relações entre precedentes e controle de vigência — sem depender de um serviço de terceiros.
+1. **Busca em linguagem natural em português** com frase exata, `OU`/`OR`, exclusão, ignorando acentos e ordenando por relevância;
+2. **Curadoria pessoal**: pastas, tags, favoritos, anotações, relações entre precedentes e controle de vigência;
+3. **Rastreabilidade**: cada decisão guarda `fonte`, `fonte_url` e `fonte_id`.
 
-O Juris-Lab resolve isso com um PostgreSQL 16 + pgvector, uma API FastAPI enxuta e uma interface web em HTML/CSS/JS puro, servida pela própria API. Tudo pode rodar na sua máquina com `docker compose up`.
+A aplicação roda em dois modos com a **mesma API**:
+
+- `sqlite` (padrão): zero configuração, com 92 tribunais e 5 decisões fictícias carregadas automaticamente. Ideal para desenvolvimento, demonstração, Vercel e uso pessoal.
+- `postgres`: PostgreSQL 16 + pgvector, com `COPY` em lotes, índices full-text e esquema preparado para embeddings. Ideal para acervos grandes.
+
+O front-end é HTML, CSS e JavaScript puro, servido pela própria API — sem build, sem framework e sem dependências de node.
 
 ## Funcionalidades
 
-- **Busca full-text** com `websearch_to_tsquery` e configuração `pt_unaccent`: `"frase exata"`, `termo1 OU termo2` (`OR` também funciona), `-excluir`, ordenação por relevância ou data e destaque do trecho encontrado.
-- **Filtros combináveis**: tribunal, ramo, tipo de decisão, relator, período, vigência, pasta, tag, favoritos e paginação.
-- **Leitura completa** da decisão com metadados, órgão julgador, anotações, tags, pastas, relações e histórico de alterações.
-- **Importação em massa** de JSONL ou CSV, com mapeamento de colunas (`--mapa`), lotes configuráveis (`--lote`) e simulação sem gravar (`--dry-run`).
-- **Deduplicação e histórico**: chave `(tribunal, fonte_id)`, `hash_conteudo` para atualizar só quando o texto muda e registro automático de alterações de ementa/tese/vigência.
-- **Organização pessoal**: pastas hierárquicas, tags, favoritos, anotações (com trecho citado), relações entre decisões e buscas salvas.
-- **Controle de vigência** manual (`vigente` / `superada`) por decisão.
-- **Painel de estatísticas** e cadastro de tribunais carregado na primeira subida do banco.
-- **Interface web leve** em `/` e arquivos estáticos em `/static`, sem framework de front-end.
-- **Pronto para busca semântica**: tabela de embeddings com pgvector já prevista no esquema (geração dos vetores e índice HNSW são próximos passos).
+- Busca full-text com destaque do trecho (`<mark>`), frase exata, `OU`/`OR`, `-excluir` e metadados (`numero_processo`, CNJ, classe e relator).
+- Filtros combináveis: tribunal, ramo, tipo, relator, período, vigência, pasta, tag, favoritos e paginação.
+- Leitura completa da decisão com metadados, órgão julgador, anotações, tags, pastas, relações de entrada/saída e histórico.
+- Organização pessoal: pastas hierárquicas, tags reutilizáveis, favoritos, anotações com trecho citado, relações tipadas e buscas salvas.
+- Importador de JSONL/CSV com mapeamento de colunas, lotes, deduplicação por `hash_conteudo`, `--dry-run` e registro em `coletas`.
+- API administrativa com JWT: emissão de token, informações da instância e importação de lote no modo SQLite.
+- Docker Compose pronto (SQLite por padrão; PostgreSQL opcional via profile) e deploy serverless na Vercel.
+- Documentação OpenAPI em `/api/docs`, healthcheck em `/healthz` e detalhes operacionais em `/api/status`.
 
 ## Tecnologias
 
 | Camada | Tecnologia |
 | --- | --- |
-| Linguagem | Python 3.12 (CI também valida 3.13) |
-| API | FastAPI + Uvicorn |
+| Linguagem | Python 3.12 (CI valida 3.12 e 3.13) |
+| API | FastAPI + Uvicorn, com Mangum para serverless |
 | Validação | Pydantic 2 |
-| Acesso a dados | psycopg 3 (com pool) e SQL puro |
-| Banco | PostgreSQL 16 + extensão pgvector |
+| Banco local | SQLite 3 (camada de compatibilidade SQL em `app/loja.py`) |
+| Banco escalável | PostgreSQL 16 + pgvector, psycopg 3 com pool |
+| Autenticação | JWT HS256 (PyJWT) |
 | Front-end | HTML5, CSS3 e JavaScript puro |
-| Testes | pytest |
+| Testes | pytest (+ httpx/TestClient) |
 | Qualidade | Ruff |
 | Container | Docker e Docker Compose |
+| Deploy | Vercel (`@vercel/python`) e Render (`render.yaml`) |
 | Automação | GitHub Actions e Dependabot |
 
-## Arquitetura em camadas
-
-As responsabilidades ficam separadas para facilitar testes e manutenção:
+## Arquitetura
 
 ```
-Router (HTTP)  →  Service (regras de negócio)  →  DB (SQL/psycopg)  →  PostgreSQL
-     ↑                      ↑                          ↑
-  schemas.py            services.py                config.py
-  (Pydantic)           (regras/organização)     (variáveis de ambiente)
+Front-end (HTML/CSS/JS)
+        |
+        v
+FastAPI  ->  Routers (HTTP)  ->  Services (regras SQL)  ->  db.q()
+                                                            |        |
+                                                       SQLite     PostgreSQL
+                                                      (padrão)    (profile postgres)
 ```
 
-- `app/routers/`: endpoints da API (busca, decisões, organização) — apenas HTTP e validação de entrada.
-- `app/services.py`: regras de negócio e orquestração das consultas.
-- `app/db.py`: pool de conexões e acesso ao banco.
-- `app/schemas.py`: contratos Pydantic de entrada e saída.
-- `app/config.py`: leitura centralizada de configuração (`.env`).
-- `app/main.py`: criação da aplicação, healthz e montagem do front-end estático.
-- `importador/importar.py`: pipeline de carga em lotes, isolado da API.
+- `backend/app/routers/`: endpoints de busca, decisões, organização, status e admin.
+- `backend/app/services.py`: construção parametrizada das consultas e validações de negócio.
+- `backend/app/db.py`: escolhe o backend ativo e expõe `q()`, `abrir()`, `fechar()` e `jsonb()`.
+- `backend/app/loja.py`: traduz o SQL PostgreSQL-específico para SQLite e semeia a base de exemplo.
+- `backend/app/security.py` e `routers/admin.py`: JWT HS256 e endpoints administrativos.
+- `backend/app/schemas.py`: contratos Pydantic de entrada.
+- `backend/app/main.py`: fábrica da aplicação, tratamento de erros em português, headers de segurança e estáticos.
+- `backend/importador/importar.py`: pipeline de carga isolado da API (`--modo sqlite|postgres`).
+- `api/index.py`: entry point da Vercel (`app` ASGI e `handler` Mangum).
 
-## Pré-requisitos
+A troca de backend é feita apenas por configuração: nenhuma rota muda.
 
-**Para Docker (recomendado):**
-- Docker Engine 24+ com o plugin Compose v2 (`docker compose version`).
+## Início rápido (sem Docker e sem banco externo)
 
-**Para execução local:**
-- Python 3.12 ou 3.13.
-- PostgreSQL 16 com a extensão `vector` (pgvector) disponível.
-- `git` e um terminal (PowerShell, bash ou equivalente).
-
-## Instalação
-
-### 1. Com Docker Compose
+Requer Python 3.12+.
 
 ```bash
 git clone https://github.com/JNeves07/Juris-Lab.git
 cd Juris-Lab
+python -m venv .venv
+
+# Windows (PowerShell)
+.\.venv\Scripts\Activate.ps1
+# Linux/macOS
+source .venv/bin/activate
+
+python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+cd backend
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+Abra <http://localhost:8000>. O banco `data/jurislab.sqlite3` é criado e preenchido na primeira execução. Para usar a raiz do repositório como diretório de trabalho:
+
+```bash
+python -m uvicorn app.main:app --app-dir backend --port 8000
+```
+
+Também há o atalho `make dev` (raiz do repositório).
+
+## Docker Compose
+
+```bash
 cp .env.example .env
 docker compose up -d --build
 ```
 
-Na primeira subida, os scripts `db/01_schema.sql` e `db/02_tribunais.sql` criam as tabelas e cadastram os tribunais. A API fica em <http://localhost:8000>, a documentação interativa em <http://localhost:8000/docs> e o banco na porta `5432`.
+Por padrão sobe somente a API em <http://localhost:8000>, com SQLite persistente no volume `sqlite_data`. Não há dependência de banco externo.
 
-### 2. Local, com ambiente virtual
-
-```bash
-# Windows (PowerShell)
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-# Linux/macOS
-python3.12 -m venv .venv
-source .venv/bin/activate
-
-python -m pip install --upgrade pip
-python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
-cp .env.example .env
-```
-
-Suba apenas o banco com Docker e aponte a conexão para `localhost`:
+Para usar PostgreSQL/pgvector:
 
 ```bash
-docker compose up -d db
-# Ajuste DATABASE_URL no .env para:
-# postgresql://juris:juris_dev@localhost:5432/jurisprudencia
+docker compose --profile postgres up -d --build
 ```
 
-Inicie a API:
+Nesse modo, `db` fica na porta `5432` e a API conectada ao banco na porta `8001`. Os scripts `db/01_schema.sql` e `db/02_tribunais.sql` são aplicados na primeira inicialização do volume.
 
-```bash
-cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+Comandos úteis: `make up`, `make down`, `make logs`, `make postgres`, `make shell-db`.
 
-> Ao executar localmente, `FRONTEND_DIR` pode apontar para a pasta `frontend` do repositório; dentro do container o valor padrão é `/app/frontend`.
+## Vercel
+
+O `vercel.json` já aponta para `api/index.py`. Na Vercel:
+
+1. *Add New... -> Project* e importe `JNeves07/Juris-Lab`;
+2. Framework: **Other**; runtime Python 3.12;
+3. Variáveis de ambiente:
+
+| Variável | Valor sugerido |
+| --- | --- |
+| `JLS_MODE` | `sqlite` |
+| `JLS_JWT_SECRET` | valor aleatório longo (32+ caracteres) |
+| `JLS_ADMIN_PASSWORD` | senha forte |
+
+Na Vercel o banco é em memória (`VERCEL=1`) e semeado a cada cold start: a instância serve para demonstração e leitura. Para persistência, use PostgreSQL externo com `JLS_MODE=postgres` e `DATABASE_URL`.
+
+Como alternativa, `render.yaml` descreve o mesmo serviço no Render com `--app-dir backend`.
 
 ## Configuração
 
-Todas as configurações vêm de variáveis de ambiente carregadas do `.env` (copie `.env.example`). **Nunca versionar o `.env` nem senhas reais.**
+Todas as opções vêm de variáveis de ambiente. **Nunca versionar `.env`, tokens ou dados reais.**
 
-| Variável | Valor de exemplo | Uso |
+| Variável | Padrão | Uso |
 | --- | --- | --- |
-| `DB_PASSWORD` | `juris_dev` | Senha do usuário `juris` no PostgreSQL do Compose. |
-| `DATABASE_URL` | `postgresql://juris:juris_dev@db:5432/jurisprudencia` | String de conexão usada pela API e pelo importador (use `localhost` fora do Compose). |
-| `FRONTEND_DIR` | `/app/frontend` | Diretório dos arquivos estáticos servidos em `/` e `/static`. |
-| `LOG_LEVEL` | `info` | Nível de log da aplicação. |
+| `JLS_MODE` | `sqlite` (ou `postgres` se `DATABASE_URL` existir) | Backend ativo. |
+| `JLS_DB_PATH` | `data/jurislab.sqlite3` (`:memory:` na Vercel) | Arquivo do SQLite. |
+| `JLS_SEED` | `1` | Carrega tribunais e decisões fictícias se a base estiver vazia. |
+| `JLS_JWT_SECRET` | `dev-only-jurislab-change-me-in-production` | Chave de assinatura do JWT. Troque em produção. |
+| `JLS_ADMIN_PASSWORD` | `admin` | Senha de `POST /api/admin/token`. Troque em produção. |
+| `JLS_CORS_ORIGINS` | vazio | Origens permitidas separadas por vírgula; vazio = mesma origem. |
+| `JLS_RATE_LIMIT` / `JLS_RATE_WINDOW` | `10` / `60` | Limite de tentativas de token por IP e janela em segundos. |
+| `DATABASE_URL` | `postgresql://juris:juris_dev@localhost:5432/jurisprudencia` | Conexão usada no modo `postgres`. |
+| `FRONTEND_DIR` | `<raiz>/frontend` | Diretório servido em `/` e `/static`. |
+| `LIMITE_CONTAGEM` | `10000` | Teto da contagem de resultados. |
 
-## Subindo e verificando
+## Uso da API
+
+Documentação interativa: <http://localhost:8000/api/docs>. Exemplos:
 
 ```bash
-docker compose up -d --build     # sobe db + api
-docker compose logs -f api       # acompanha a API
-docker compose ps                # status dos serviços
 curl http://localhost:8000/healthz
-```
+curl http://localhost:8000/api/status
 
-O healthcheck da API consulta `/healthz`; o do banco usa `pg_isready`. A API só é considerada pronta quando o banco estiver saudável (`depends_on: service_healthy`).
-
-## Importação de dados
-
-O importador aceita **JSONL** (uma decisão por linha) e **CSV** (com cabeçalho). Campos reconhecidos: `fonte_id`, `numero_processo`, `classe`, `relator`, `orgao_julgador`, `tipo`, `data_julgamento`, `data_publicacao`, `ementa`, `inteiro_teor`, `tese`, `legislacao_citada`, `fonte_url`. `fonte_id` e pelo menos um texto (ementa ou inteiro teor) são obrigatórios.
-
-O repositório traz `dados/exemplo.jsonl` com decisões **fictícias**, apenas para validar o fluxo:
-
-```bash
-# Simulação: não grava nada no banco
-docker compose exec api python -m importador.importar \
-  --arquivo /app/dados/exemplo.jsonl \
-  --tribunal STJ \
-  --fonte "Exemplo (fictício)" \
-  --lote 5000 \
-  --dry-run
-
-# Carga real
-docker compose exec api python -m importador.importar \
-  --arquivo /app/dados/exemplo.jsonl \
-  --tribunal STJ \
-  --fonte "Exemplo (fictício)"
-```
-
-Para remover os dados de exemplo depois do teste:
-
-```bash
-docker compose exec db psql -U juris -d jurisprudencia \
-  -c "DELETE FROM decisoes WHERE fonte = 'Exemplo (fictício)';"
-```
-
-### Mapeando colunas (`--mapa`)
-
-Quando o arquivo da fonte usa outros nomes, forneça um JSON com `{campo_do_banco: coluna_do_arquivo}`:
-
-```json
-{
-  "fonte_id": "id_documento",
-  "ementa": "ementa",
-  "numero_processo": "processo",
-  "relator": "ministro_relator",
-  "data_julgamento": "dt_julgamento",
-  "inteiro_teor": "texto_integral",
-  "orgao_julgador": "orgao"
-}
-```
-
-```bash
-docker compose exec api python -m importador.importar \
-  --arquivo /app/dados/stj_2024.csv \
-  --tribunal STJ \
-  --fonte "STJ dados abertos" \
-  --mapa /app/dados/mapa_stj.json \
-  --lote 10000
-```
-
-- `--lote` controla quantos registros são enviados por `COPY` em cada transação (padrão: 5.000).
-- `--dry-run` valida, normaliza e mostra o que seria feito sem gravar no banco.
-- Consulte `python -m importador.importar --help` para a lista completa de opções.
-
-Cada execução fica registrada em `coletas`. Linhas inválidas são ignoradas e contabilizadas; registros idênticos aos existentes não são reescritos.
-
-## Endpoints (exemplos com curl)
-
-```bash
-# Saúde da aplicação
-curl http://localhost:8000/healthz
-
-# Busca com frase exata, filtro de tribunal e paginação
 curl -G http://localhost:8000/api/busca \
-  --data-urlencode 'q="responsabilidade objetiva" OU "dano moral" -prescrição' \
+  --data-urlencode 'q="dano moral" OU responsabilidade -prescrição' \
   --data-urlencode 'tribunal=STJ' \
   --data-urlencode 'ordem=relevancia' \
   --data-urlencode 'pagina=1' \
   --data-urlencode 'por_pagina=20'
 
-# Tribunais cadastrados e estatísticas gerais
 curl http://localhost:8000/api/tribunais
 curl http://localhost:8000/api/estatisticas
-
-# Decisão específica (inclui anotações, tags, pastas, relações e histórico)
 curl http://localhost:8000/api/decisoes/1
 
-# Organização pessoal
-curl http://localhost:8000/api/pastas
-curl http://localhost:8000/api/tags
-curl http://localhost:8000/api/buscas-salvas
-
-# Favoritar e alterar vigência
 curl -X PUT http://localhost:8000/api/decisoes/1/favorito
 curl -X PUT http://localhost:8000/api/decisoes/1/status \
-  -H 'Content-Type: application/json' \
-  -d '{"status": "superada"}'
+  -H 'Content-Type: application/json' -d '{"status":"superada"}'
 
-# Criar pasta, tag, anotação e relação
 curl -X POST http://localhost:8000/api/pastas \
-  -H 'Content-Type: application/json' -d '{"nome": "Responsabilidade Civil"}'
+  -H 'Content-Type: application/json' -d '{"nome":"Responsabilidade Civil"}'
 curl -X PUT http://localhost:8000/api/decisoes/1/tags \
-  -H 'Content-Type: application/json' -d '{"nome": "dano moral"}'
+  -H 'Content-Type: application/json' -d '{"nome":"importante"}'
 curl -X POST http://localhost:8000/api/decisoes/1/anotacoes \
-  -H 'Content-Type: application/json' -d '{"texto": "Entendimento revisado em 2024.", "trecho": "..."}'
+  -H 'Content-Type: application/json' -d '{"texto":"Revisar entendimento","trecho":"..."}'
 curl -X POST http://localhost:8000/api/decisoes/1/relacoes \
   -H 'Content-Type: application/json' \
-  -d '{"destino_id": 2, "tipo": "distingue", "nota": "Contexto factual diverso"}'
+  -d '{"destino_id":2,"tipo":"distingue","nota":"Contexto factual diverso"}'
 ```
 
-A documentação OpenAPI/Swagger está disponível em <http://localhost:8000/docs>.
+### Administração (JWT)
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8000/api/admin/token \
+  -H 'Content-Type: application/json' \
+  -d '{"password":"admin"}' | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/admin/info
+
+curl -X POST http://localhost:8000/api/admin/importar \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"tribunal":"STJ","fonte":"Importação pela API","registros":[{"fonte_id":"NOVO-1","ementa":"Decisão sobre dano moral","tipo":"acordao"}]}'
+```
+
+A importação pela API está disponível no modo SQLite. No PostgreSQL use a CLI do importador.
 
 ## Sintaxe de busca
-
-A busca usa `websearch_to_tsquery` com o dicionário `pt_unaccent`, então `contrato` encontra `contratual` e `ação` encontra `acao`:
 
 | Sintaxe | Exemplo | Resultado |
 | --- | --- | --- |
 | Termos livres | `dano moral consumidor` | todos os termos (AND implícito) |
-| Frase exata | `"dano moral"` | termos adjacentes, na ordem |
-| Alternativa | `dano OU prejuízo` | qualquer um dos termos (`OR` também é aceito) |
+| Frase exata | `"dano moral"` | termos próximos, na ordem |
+| Alternativa | `dano OU prejuízo` | qualquer termo (`OR` também funciona) |
 | Exclusão | `dano -prescrição` | remove decisões com o termo excluído |
-| Combinação | `"frase exata" OU termo -excluir` | combinações das regras acima |
+| Combinação | `"frase exata" OU termo -excluir` | combinação das regras acima |
 
-Ordenação por relevância pondera mais a ementa, depois a tese e por fim o inteiro teor. A busca também cas número do processo, número CNJ, classe e relator por `ILIKE`, então `REsp 1000001/SP` encontra a decisão mesmo sem estar no texto da ementa. A contagem para em 10.000 resultados (`total_truncado: true`) para manter a resposta rápida mesmo com milhões de decisões.
+No PostgreSQL a busca usa `websearch_to_tsquery` com `pt_unaccent` (ignore acentos e flexões). No SQLite a camada de compatibilidade aplica a mesma semântica com funções equivalentes (`ts_match`, `ts_rank_cd`, `ts_headline`). Metadados também são pesquisados por `numero_processo`, `numero_cnj`, `classe` e `relator`. A contagem para em 10.000 (`total_truncado: true`) para manter a resposta rápida.
 
-## Organização pessoal
+## Importação de dados
 
-- **Pastas**: hierárquicas (`pai_id`), com contagem de decisões; uma decisão pode estar em várias pastas.
-- **Tags**: normalizadas em minúsculas, reutilizadas entre decisões.
-- **Favoritos**: marcação rápida com filtro dedicado na busca (`favoritos=true`).
-- **Anotações**: texto livre com trecho opcional da decisão e data de criação.
-- **Relações**: vínculos entre precedentes (`origem → destino`) com tipo e nota; a leitura mostra relações de entrada e saída.
-- **Vigência**: `status` manual (`vigente` / `superada`), registrado no histórico de alterações.
-- **Buscas salvas**: nome, consulta e filtros em JSONB, prontos para alimentar alertas.
+JSONL (uma decisão por linha) ou CSV com cabeçalho. Campos: `fonte_id`, `ementa`, `numero_processo`, `classe`, `relator`, `orgao_julgador`, `tipo`, `data_julgamento`, `data_publicacao`, `inteiro_teor`, `tese`, `legislacao_citada`, `fonte_url`. `fonte_id` e pelo menos um texto são obrigatórios.
 
-Tudo isso é de uso pessoal: não altera o texto original da decisão, apenas acrescenta metadados locais.
+```bash
+# SQLite local (padrão)
+python -m importador.importar --arquivo ../dados/exemplo.jsonl \
+  --tribunal STJ --fonte "Exemplo (fictício)" --modo sqlite
+
+# PostgreSQL (dentro do container ou com DATABASE_URL apontando para ele)
+python -m importador.importar --arquivo dados/exemplo.jsonl \
+  --tribunal STJ --fonte "Exemplo (fictício)" --modo postgres
+
+# Simulação, sem gravar
+python -m importador.importar --arquivo dados/exemplo.jsonl \
+  --tribunal STJ --fonte "Teste" --dry-run
+```
+
+`--mapa` traduz nomes de colunas da fonte (`{"fonte_id": "id_documento", ...}`) e `--lote` controla o tamanho do lote no PostgreSQL. Linhas inválidas são ignoradas e contabilizadas; cada execução fica registrada em `coletas`.
 
 ## Testes e qualidade
 
-```bash
-# Na pasta backend/
-python -m pytest -q
-python -m ruff check app importador tests
-```
+A suíte é totalmente offline (sem rede e sem PostgreSQL): 87 testes cobrem serviços, importador, validações, API com dublês, SQLite real, JWT/admin e entry point da Vercel.
 
-Ou, a partir da raiz, com `make test` e `make lint`. Os testes cobrem o importador (`test_importador.py`), as regras de serviço (`test_services.py`) e a API (`test_api.py`).
+```bash
+# A partir da raiz
+python -m ruff check .
+cd backend && python -m pytest -q
+
+# Ou com os atalhos
+make check
+```
 
 ## Integração contínua
 
-O workflow `.github/workflows/ci.yml` executa, em cada push e pull request:
+`.github/workflows/ci.yml` executa em push/PR para `main`:
 
-- **job `backend`**: matriz Python 3.12 e 3.13, instalação de `requirements.txt` + `requirements-dev.txt`, `python -m pytest -q` e `python -m ruff check app importador tests` (com `working-directory: backend`).
-- **job `compose`**: validação do arquivo do Compose com `docker compose config`.
+- `quality`: matriz Python 3.12/3.13 com Ruff e pytest;
+- `artefatos`: `node --check` do front-end, validação de JSON/YAML, `docker compose config -q` e build da imagem.
 
-O `.github/dependabot.yml` abre PRs semanais de atualização para `pip` (em `/backend`) e `github-actions`.
+O Dependabot abre PRs semanais para pip, GitHub Actions e Dockerfile.
 
-## Estrutura de pastas
+## Estrutura
 
 ```
 Juris-Lab/
 ├── README.md                    # este documento
-├── CONTRIBUTING.md              # como contribuir
-├── Makefile                     # atalhos: up, down, logs, test, lint, import, shell-db
-├── docker-compose.yml           # serviços db + api
-├── .env.example                 # modelos de variáveis (sem segredos reais)
-├── .gitignore / .dockerignore
+├── CONTRIBUTING.md
+├── Makefile
+├── pyproject.toml               # configuração do Ruff/pytest na raiz
+├── requirements (em backend/)
+├── docker-compose.yml           # API SQLite + perfil opcional postgres
+├── vercel.json / render.yaml    # deploy serverless
+├── .env.example
+├── .github/
+│   ├── workflows/ci.yml
+│   └── dependabot.yml
+├── api/index.py                 # entry point Vercel (Mangum)
 ├── backend/
 │   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── requirements-dev.txt
+│   ├── requirements.txt / requirements-dev.txt
 │   ├── pytest.ini
 │   ├── app/
-│   │   ├── config.py
-│   │   ├── db.py
-│   │   ├── schemas.py
-│   │   ├── services.py
-│   │   ├── main.py
-│   │   └── routers/
-│   │       ├── busca.py
-│   │       ├── decisoes.py
-│   │       └── organizacao.py
-│   ├── importador/
-│   │   └── importar.py
+│   │   ├── config.py / db.py / loja.py
+│   │   ├── security.py / schemas.py / services.py / main.py
+│   │   └── routers/{status,busca,decisoes,organizacao,admin}.py
+│   ├── importador/importar.py
 │   └── tests/
-│       ├── test_importador.py
-│       ├── test_services.py
-│       └── test_api.py
 ├── frontend/
 │   ├── index.html
 │   ├── css/styles.css
 │   ├── js/app.js
-│   └── assets/favicon.svg
-├── dados/
-│   └── exemplo.jsonl            # decisões fictícias para teste
-├── db/
-│   ├── 01_schema.sql
-│   └── 02_tribunais.sql
-├── docs/
-│   └── original/                # projeto original preservado (não usar em produção)
-└── .github/
-    ├── workflows/ci.yml
-    └── dependabot.yml
+│   └── assets/
+├── data/                        # SQLite gerado localmente (ignorado no git)
+├── dados/exemplo.jsonl          # decisões fictícias
+├── db/01_schema.sql / 02_tribunais.sql
+└── docs/original/               # projeto original preservado
 ```
 
-## Fontes oficiais de dados
+## Fontes oficiais
 
-Use preferencialmente canais oficiais e respeite os termos de uso de cada fonte:
-
-- **STJ** — portal de dados abertos e portal de jurisprudência do Superior Tribunal de Justiça.
-- **STF** — portal de dados abertos e buscas oficiais do Supremo Tribunal Federal.
-- **DataJud (CNJ)** — API de metadados processuais; **não fornece o inteiro teor**, portanto é útil para localizar processos, não para substituir a leitura da decisão.
-- **Portais de jurisprudência dos tribunais estaduais e federais** — verifique se autorizam coleta automatizada antes de criar um coletor.
-
-Registre sempre `fonte`, `fonte_url` e `fonte_id` para saber de onde veio cada decisão.
+Use canais oficiais e respeite os termos de uso: STJ (dados abertos), STF (dados abertos), DataJud/CNJ (metadados processuais, sem inteiro teor) e portais dos tribunais estaduais/federais. Registre sempre `fonte`, `fonte_url` e `fonte_id`.
 
 ## Avisos importantes
 
-- **LGPD**: decisões judiciais podem conter dados pessoais (nomes, CPF, endereços, processos sigilosos). Mantenha o acervo apenas na sua máquina ou rede confiável, proteja o `.env` e as credenciais, defina política de retenção e nunca publique o banco sem avaliação jurídica e de privacidade.
-- **Confira a fonte oficial**: esta ferramenta organiza e pesquisa; **não substitui a consulta da decisão no site do tribunal antes de citá-la**. Ementas e teses podem ter sido alteradas ou revogadas.
-- **Vigência é curadoria**: o campo `status` é manual (ou depende dos seus coletores); não presuma que ele reflete automaticamente a situação processual real.
-- Os registros em `dados/exemplo.jsonl` são **fictícios** e existem apenas para testar a importação.
+- **LGPD**: decisões podem conter dados pessoais. Mantenha o acervo em ambiente confiável, proteja credenciais e nunca publique o banco sem avaliação jurídica e de privacidade.
+- **Confira a fonte oficial**: a ferramenta organiza e pesquisa, mas não substitui a consulta no site do tribunal antes de citar uma decisão.
+- **Vigência é curadoria**: `status` é manual, não automático.
+- Registros em `dados/exemplo.jsonl` são fictícios e servem apenas para teste.
+- Em produção, troque `JLS_JWT_SECRET` e `JLS_ADMIN_PASSWORD` (a API sinaliza `segredos_padrao: true` em `/api/status`).
 
 ## Próximos passos
 
-1. **Embeddings com pgvector**: gerar vetores das ementas/teses e criar índice HNSW para busca semântica combinada com a busca textual.
-2. **Alertas de mudança de entendimento**: usar `buscas_salvas` + `historico_alteracoes` para avisar quando uma decisão monitorada muda.
-3. **Coletores por tribunal**: um adaptador por fonte oficial que baixa os dados e gera o JSONL padronizado.
-4. **Resumo assistido por IA** com revisão humana obrigatória (risco de alucinação em texto jurídico).
-5. **Escalabilidade**: se o acervo passar de dezenas de milhões de decisões ou a busca ficar lenta, migrar a indexação para OpenSearch/Meilisearch mantendo o PostgreSQL como fonte da verdade.
+1. embeddings com pgvector e índice HNSW para busca semântica;
+2. alertas de mudança usando `buscas_salvas` + `historico_alteracoes`;
+3. coletores por tribunal gerando JSONL padronizado;
+4. resumo assistido por IA com revisão humana obrigatória;
+5. migração da indexação para OpenSearch/Meilisearch em acervos muito grandes.
 
-O projeto original está preservado em [`docs/original/`](docs/original/) (incluindo o README e o arquivo histórico) para referência; o código ativo é o descrito acima.
+O projeto original está preservado em [`docs/original/`](docs/original/) para referência.
 
-## Licença e uso
+## Licença
 
-Ferramenta de uso pessoal e estudo. Verifique a licença dos dados obtidos de cada tribunal antes de redistribuí-los.
+Ferramenta de uso pessoal e estudo. Verifique a licença dos dados de cada tribunal antes de redistribuí-los.

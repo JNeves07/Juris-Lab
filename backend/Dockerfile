@@ -2,18 +2,24 @@ FROM python:3.12-slim
 
 ENV PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/backend \
+    FRONTEND_DIR=/app/frontend \
+    JLS_MODE=sqlite \
+    JLS_DB_PATH=/app/data/jurislab.sqlite3
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/requirements.txt ./backend/requirements.txt
+RUN pip install --no-cache-dir -r backend/requirements.txt
 
-COPY app ./app
-COPY importador ./importador
+COPY backend/app ./backend/app
+COPY backend/importador ./backend/importador
+COPY frontend ./frontend
+COPY db ./db
+COPY dados ./dados
 
-# O compose monta o frontend em /app/frontend; garantimos que o diretório exista.
-RUN mkdir -p /app/frontend \
+RUN mkdir -p /app/data \
     && useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /app
 

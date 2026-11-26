@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: juris-lab
+    runtime: python
+    plan: free
+    branch: main
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --app-dir backend
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: JLS_MODE
+        value: sqlite
+      - key: JLS_DB_PATH
+        value: /tmp/jurislab.sqlite3
+      - key: JLS_JWT_SECRET
+        generateValue: true
+      - key: JLS_ADMIN_PASSWORD
+        generateValue: true

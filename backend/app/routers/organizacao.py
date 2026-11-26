@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from psycopg.types.json import Jsonb
 
 from app import db
 from app.schemas import BuscaSalva, Nome, Relacao, Texto
@@ -132,7 +131,7 @@ def buscas_salvas():
 def salvar_busca(body: BuscaSalva):
     return db.q(
         "INSERT INTO buscas_salvas (nome, consulta, filtros) VALUES (%s,%s,%s) RETURNING id, nome",
-        (body.nome, body.consulta, Jsonb(body.filtros)),
+        (body.nome, body.consulta, db.jsonb(body.filtros)),
     )[0]
 
 

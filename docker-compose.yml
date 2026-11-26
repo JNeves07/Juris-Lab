@@ -1,34 +1,62 @@
-# Juris-Lab — orquestração do banco (pgvector) e da API FastAPI.
-# Todos os valores sensíveis vêm do arquivo .env (copie de .env.example).
-# Use: docker compose up -d --build
+# Juris-Lab — orquestração da API.
+# Padrão: sobe sozinha com SQLite + dados de exemplo (`docker compose up -d --build`).
+# Opcional: PostgreSQL/pgvector com `docker compose --profile postgres up -d --build`.
 
 services:
   # ---------------------------------------------------------------------
-  # Banco de dados PostgreSQL 16 com a extensão pgvector já instalada.
+  # API FastAPI: serve /api, /api/docs, /healthz e o front-end em / e /static.
+  # Funciona isolada, sem nenhum outro serviço.
+  # ---------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: juris_api
+    restart: unless-stopped
+
+    environment:
+      JLS_MODE: ${JLS_MODE:-sqlite}
+      JLS_DB_PATH: ${JLS_DB_PATH:-/app/data/jurislab.sqlite3}
+      JLS_SEED: ${JLS_SEED:-1}
+      JLS_JWT_SECRET: ${JLS_JWT_SECRET:-dev-only-jurislab-change-me-in-production}
+      JLS_ADMIN_PASSWORD: ${JLS_ADMIN_PASSWORD:-admin}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      FRONTEND_DIR: /app/frontend
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - sqlite_data:/app/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ---------------------------------------------------------------------
+  # PostgreSQL + pgvector (opcional). Ative com o profile `postgres`.
   # ---------------------------------------------------------------------
   db:
     image: pgvector/pgvector:pg16
     container_name: juris_db
     restart: unless-stopped
+    profiles: ["postgres"]
 
-    # Credenciais e nome do banco. A senha é lida de DB_PASSWORD no .env.
     environment:
       POSTGRES_USER: juris
       POSTGRES_PASSWORD: ${DB_PASSWORD:-juris_dev}
       POSTGRES_DB: jurisprudencia
 
-    # Porta do banco exposta apenas para desenvolvimento local/diagnóstico.
     ports:
       - "5432:5432"
 
     volumes:
-      # Dados persistentes do PostgreSQL (não são apagados pelo `down`).
       - pgdata:/var/lib/postgresql/data
-      # Scripts executados somente na primeira inicialização do volume:
-      # 01_schema.sql (tabelas/índices) e 02_tribunais.sql (cadastro inicial).
       - ./db:/docker-entrypoint-initdb.d:ro
 
-    # Ajustes de memória para acervos grandes; adapte à RAM da sua máquina.
     command: >
       postgres
       -c shared_buffers=2GB
@@ -43,45 +71,39 @@ services:
       retries: 10
       start_period: 10s
 
-  # ---------------------------------------------------------------------
-  # API FastAPI: serve /api, /docs, /healthz e o front-end em / e /static.
-  # ---------------------------------------------------------------------
-  api:
+  api-postgres:
     build:
-      context: ./backend
-    container_name: juris_api
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: juris_api_postgres
     restart: unless-stopped
+    profiles: ["postgres"]
 
     environment:
-      # A URL de conexão é configurável via .env; o padrão usa o serviço `db`.
+      JLS_MODE: postgres
       DATABASE_URL: ${DATABASE_URL:-postgresql://juris:juris_dev@db:5432/jurisprudencia}
-      FRONTEND_DIR: ${FRONTEND_DIR:-/app/frontend}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      JLS_JWT_SECRET: ${JLS_JWT_SECRET:-dev-only-jurislab-change-me-in-production}
+      JLS_ADMIN_PASSWORD: ${JLS_ADMIN_PASSWORD:-admin}
+      FRONTEND_DIR: /app/frontend
 
-    # Não inicia a API antes de o banco aceitar conexões.
     depends_on:
       db:
         condition: service_healthy
 
     ports:
-      - "8000:8000"
+      - "8001:8000"
 
     volumes:
-      # Front-end e arquivos de dados montados apenas para leitura.
       - ./frontend:/app/frontend:ro
       - ./dados:/app/dados:ro
 
     healthcheck:
-      # Usa a biblioteca padrão do Python: não depende de curl na imagem.
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)\""]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
 
-# -------------------------------------------------------------------------
-# Volume nomeado do PostgreSQL: sobrevive a `docker compose down`.
-# Para apagar TUDO: docker compose down -v
-# -------------------------------------------------------------------------
 volumes:
   pgdata:
+  sqlite_data:

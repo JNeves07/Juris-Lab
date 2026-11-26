@@ -20,6 +20,9 @@ dados/*
 !dados/exemplo.jsonl
 !dados/*.example.*
 
+# Banco local gerado automaticamente (modo SQLite)
+data/*.sqlite3*
+
 # Dependencias de front-end (o projeto usa JS puro, mas previne acidentes)
 frontend/node_modules/
 

@@ -75,3 +75,17 @@ class BuscaSalva(BaseModel):
         if len(json.dumps(valor, ensure_ascii=False, default=str)) > settings.max_consulta:
             raise ValueError("Filtros muito grandes.")
         return valor
+
+
+class TokenIn(BaseModel):
+    """Senha administrativa usada para obter um JWT."""
+
+    password: str = Field(min_length=1, max_length=200)
+
+
+class ImportarIn(BaseModel):
+    """Lote de decisões enviado pela API administrativa."""
+
+    registros: list[dict[str, Any]] = Field(min_length=1, max_length=1000)
+    tribunal: str = Field(default="STJ", max_length=10)
+    fonte: str = Field(default="Importação pela API", max_length=200)

@@ -1,32 +1,45 @@
 # Atalhos para as tarefas mais comuns do Juris-Lab.
-# Uso: make up | make test | make import ...
+# Uso: make dev | make up | make test | make import ...
 
-.PHONY: up down logs test lint import shell-db
+.PHONY: dev up down logs postgres test lint check import import-pg shell-db
 
-# Sobe (ou reconstrói) o banco e a API em segundo plano.
+# Roda a API localmente com SQLite e dados de exemplo (sem Docker).
+dev:
+	cd backend && python -m uvicorn app.main:app --reload --port 8000
+
+# Sobe a API pronta para uso (SQLite) em segundo plano.
 up:
 	docker compose up -d --build
 
-# Encerra os serviços (mantém o volume pgdata).
 down:
 	docker compose down
 
-# Acompanha os logs de todos os serviços.
 logs:
 	docker compose logs -f
 
-# Executa a suíte de testes do backend.
+# Sobe PostgreSQL/pgvector e a API conectada a ele na porta 8001.
+postgres:
+	docker compose --profile postgres up -d --build
+
+# Executa a suíte de testes (sem banco externo).
 test:
 	cd backend && python -m pytest -q
 
-# Verifica o estilo do código do backend.
+# Verifica o estilo do código.
 lint:
-	cd backend && python -m ruff check app importador tests
+	python -m ruff check .
 
-# Importa as decisões fictícias de exemplo (use --lote/--dry-run se precisar).
+# Testes + lint.
+check: test lint
+
+# Importa as decisões fictícias no SQLite local.
 import:
-	docker compose exec api python -m importador.importar --arquivo /app/dados/exemplo.jsonl --tribunal STJ --fonte "Exemplo (fictício)"
+	cd backend && python -m importador.importar --arquivo ../dados/exemplo.jsonl --tribunal STJ --fonte "Exemplo (fictício)" --modo sqlite
+
+# Importa no PostgreSQL (com o profile `postgres` ativo).
+import-pg:
+	docker compose --profile postgres exec api-postgres python -m importador.importar --arquivo /app/dados/exemplo.jsonl --tribunal STJ --fonte "Exemplo (fictício)"
 
 # Abre um psql dentro do container do banco.
 shell-db:
-	docker compose exec db psql -U juris -d jurisprudencia
+	docker compose --profile postgres exec db psql -U juris -d jurisprudencia

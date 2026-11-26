@@ -1,34 +1,39 @@
 # Como contribuir
 
-Obrigado por ajudar a melhorar o Juris-Lab! Este é um projeto de uso pessoal, mas qualquer correção, teste ou documentação é bem-vinda.
+Obrigado por ajudar a melhorar o Juris-Lab! É um projeto de uso pessoal, mas correções, testes e documentação são bem-vindas.
 
 ## Preparar o ambiente
 
+O modo padrão é SQLite, então não é preciso banco externo:
+
 ```bash
-cp .env.example .env
+git clone https://github.com/JNeves07/Juris-Lab.git
+cd Juris-Lab
 python -m venv .venv
 # Windows: .\.venv\Scripts\Activate.ps1 | Linux/macOS: source .venv/bin/activate
 python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+cp .env.example .env
+make dev
 ```
 
-Para subir o banco e a API com Docker: `docker compose up -d --build`.
+Para testar o modo PostgreSQL, use `docker compose --profile postgres up -d --build` e defina `JLS_MODE=postgres` com a `DATABASE_URL` adequada.
 
 ## Rodar testes e lint
 
 ```bash
-cd backend
-python -m pytest -q
-python -m ruff check app importador tests
+python -m ruff check .
+cd backend && python -m pytest -q
 ```
 
-Ou, na raiz do repositório: `make test` e `make lint`. A CI repete exatamente esses comandos em Python 3.12 e 3.13 e também valida o Compose com `docker compose config`.
+Ou, na raiz: `make check`. A CI repete esses comandos em Python 3.12 e 3.13 e valida também o front-end, os arquivos de configuração, o Compose e o build da imagem. A suíte é offline: novos testes **não devem** exigir rede ou PostgreSQL.
 
 ## Estilo
 
 - Siga PEP 8 (o Ruff é a referência) e use nomes e comentários claros.
-- Documentação e mensagens voltadas ao usuário em **português**.
-- Mantenha as camadas separadas: rotas em `app/routers/`, regras em `services.py`, SQL em `db.py` e contratos em `schemas.py`.
-- Escreva testes para toda mudança de comportamento (importador, serviços ou API).
+- Documentação e mensagens voltadas ao usuário em **português**, sem emojis.
+- Mantenha as camadas separadas: rotas em `app/routers/`, regras em `services.py`, acesso a dados em `db.py`/`loja.py` e contratos em `schemas.py`.
+- Ao escrever SQL, use sempre parâmetros (`%s` ou `%(nome)s`); a camada SQLite traduz automaticamente.
+- Escreva testes para toda mudança de comportamento (importador, serviços, API ou loja local).
 - **Nunca** comite `.env`, senhas, tokens ou decisões com dados pessoais reais.
 
 ## Commits e pull requests

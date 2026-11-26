@@ -1,0 +1,19 @@
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+addopts = "-q"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+# B008: Depends() em defaults é o padrão idiomático do FastAPI.
+ignore = ["B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "importador", "api"]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/tests/*" = ["E501"]

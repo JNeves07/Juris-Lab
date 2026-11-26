@@ -1,7 +1,9 @@
-"""API de jurisprudência: busca, leitura e organização pessoal."""
+"""API de jurisprudência: fábrica FastAPI, segurança e registro dos roteadores."""
 from __future__ import annotations
 
 import logging
+import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -13,11 +15,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import db
-from app.config import settings
-from app.routers import busca, decisoes, organizacao
+from app import config, db
+from app.routers import admin, busca, decisoes, organizacao, status
 
 log = logging.getLogger(__name__)
+_hits: dict[str, deque] = defaultdict(deque)
 
 MENSAGENS_STATUS = {
     400: "Requisição inválida.",
@@ -91,84 +93,103 @@ def traduzir_erros(erros: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return traduzidos
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Abre e fecha o pool de conexões junto com o ciclo de vida da app."""
-    await db.abrir()
-    try:
-        yield
-    finally:
-        await db.fechar()
+def criar_app() -> FastAPI:
+    """Cria a aplicação; usada por uvicorn, testes e pelo handler da Vercel."""
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        """Abre e fecha o backend junto com o ciclo de vida da app."""
+        await db.abrir()
+        try:
+            yield
+        finally:
+            await db.fechar()
 
-app = FastAPI(
-    title="Jurisprudência",
-    description="Busca, leitura e organização pessoal de decisões judiciais.",
-    version="1.0.0",
-    lifespan=lifespan,
-)
-
-
-@app.exception_handler(StarletteHTTPException)
-async def tratar_http_exception(request: Request, exc: StarletteHTTPException):
-    return resposta_erro(
-        exc.status_code,
-        exc.detail,
-        MENSAGENS_STATUS.get(exc.status_code, "Não foi possível concluir a solicitação."),
+    aplicacao = FastAPI(
+        title="Juris-Lab",
+        description=(
+            "Busca, leitura e organização pessoal de decisões judiciais. "
+            "Funciona sem configuração com SQLite local ou com PostgreSQL/pgvector."
+        ),
+        version=config.settings.versao,
+        lifespan=lifespan,
+        docs_url="/api/docs",
+        redoc_url="/api/redoc",
+        openapi_url="/api/openapi.json",
     )
 
-
-@app.exception_handler(RequestValidationError)
-async def tratar_validacao(request: Request, exc: RequestValidationError):
-    return resposta_erro(
-        422,
-        traduzir_erros(exc.errors()),
-        MENSAGENS_STATUS[422],
-    )
-
-
-@app.middleware("http")
-async def tratar_erros(request: Request, call_next):
-    """Captura falhas inesperadas e devolve JSON amigável."""
-    try:
-        return await call_next(request)
-    except Exception:
-        log.exception("Erro não tratado em %s", request.url.path)
+    @aplicacao.exception_handler(StarletteHTTPException)
+    async def tratar_http_exception(request: Request, exc: StarletteHTTPException):
         return resposta_erro(
-            500,
-            "Erro interno no servidor.",
-            MENSAGENS_STATUS[500],
+            exc.status_code,
+            exc.detail,
+            MENSAGENS_STATUS.get(exc.status_code, "Não foi possível concluir a solicitação."),
         )
 
+    @aplicacao.exception_handler(RequestValidationError)
+    async def tratar_validacao(request: Request, exc: RequestValidationError):
+        return resposta_erro(422, traduzir_erros(exc.errors()), MENSAGENS_STATUS[422])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    @aplicacao.middleware("http")
+    async def seguranca_e_limites(request: Request, call_next):
+        if request.url.path == "/api/admin/token" and request.method == "POST":
+            ip = (
+                request.headers.get("x-forwarded-for")
+                or (request.client.host if request.client else "?")
+            ).split(",")[0].strip()
+            janela, agora = _hits[ip], time.monotonic()
+            while janela and janela[0] < agora - config.settings.rate_window:
+                janela.popleft()
+            if len(janela) >= config.settings.rate_limit:
+                return resposta_erro(429, "Muitas tentativas. Aguarde um minuto.", "Limite de requisições excedido.")
+            janela.append(agora)
 
-app.include_router(busca.router)
-app.include_router(decisoes.router)
-app.include_router(organizacao.router)
+        try:
+            resposta = await call_next(request)
+        except Exception:
+            log.exception("Erro não tratado em %s", request.url.path)
+            resposta = resposta_erro(500, "Erro interno no servidor.", MENSAGENS_STATUS[500])
+        resposta.headers["X-Content-Type-Options"] = "nosniff"
+        resposta.headers["X-Frame-Options"] = "DENY"
+        resposta.headers["Referrer-Policy"] = "no-referrer"
+        resposta.headers["Cache-Control"] = (
+            "no-store" if request.url.path.startswith("/api/") else "public, max-age=300"
+        )
+        resposta.headers["Content-Security-Policy"] = (
+            "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; script-src 'self'; connect-src 'self'"
+        )
+        return resposta
+
+    if config.settings.cors_origins:
+        aplicacao.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(config.settings.cors_origins),
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "PUT", "DELETE"],
+            allow_headers=["Authorization", "Content-Type"],
+        )
+
+    aplicacao.include_router(status.router)
+    aplicacao.include_router(busca.router)
+    aplicacao.include_router(decisoes.router)
+    aplicacao.include_router(organizacao.router)
+    aplicacao.include_router(admin.router)
+
+    frontend = config.settings.frontend_dir
+
+    @aplicacao.get("/", include_in_schema=False)
+    def index():
+        return FileResponse(frontend / "index.html")
+
+    @aplicacao.get("/favicon.svg", include_in_schema=False)
+    def favicon():
+        return FileResponse(frontend / "assets" / "favicon.svg")
+
+    if frontend.exists():
+        aplicacao.mount("/static", StaticFiles(directory=frontend), name="static")
+
+    return aplicacao
 
 
-@app.get("/healthz", include_in_schema=False)
-def healthz():
-    return {"status": "ok"}
-
-
-# ---------------------------------------------------------------------
-# Frontend estático (mesmo comportamento da versão anterior)
-# ---------------------------------------------------------------------
-FRONTEND = settings.frontend_dir
-
-
-@app.get("/", include_in_schema=False)
-def index():
-    return FileResponse(FRONTEND / "index.html")
-
-
-if FRONTEND.exists():
-    app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
+app = criar_app()
