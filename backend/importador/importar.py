@@ -5,6 +5,8 @@ Uso:
     python -m importador.importar --arquivo export.csv --tribunal TJCE --fonte "TJCE portal" \
         --mapa dados/mapa_tjce.json --lote 2000
     python -m importador.importar --arquivo export.csv --tribunal STJ --fonte "Teste" --dry-run
+    python -m importador.importar --coletor jsonl --origem dados/exemplo.jsonl \
+        --tribunal STJ --fonte "Coletor local" --mapa dados/coletores.exemplo.json
 
 O arquivo precisa (ou, via --mapa, é traduzido para) ter estes campos:
     fonte_id*, ementa*, numero_processo, classe, relator, orgao_julgador, tipo,
@@ -23,22 +25,28 @@ import csv
 import hashlib
 import io
 import json
-import os
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import psycopg
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL", "postgresql://juris:juris_dev@localhost:5432/jurisprudencia"
-)
+from app import config
+from importador.coletores import ColetorJSONL, normalizar_registro
+
 LOTE_PADRAO = 5000
 LOTE = LOTE_PADRAO  # mantido para compatibilidade com imports antigos
 
 CNJ_RE = re.compile(r"(\d{7})-?(\d{2})\.?(\d{4})\.?(\d)\.?(\d{2})\.?(\d{4})")
+
+
+def database_url() -> str:
+    """Lê a URL no momento do uso, compartilhando a configuração da API."""
+    return config.settings.database_url
+
 TIPOS = {
     "acordao", "decisao_monocratica", "sumula", "sumula_vinculante",
     "repercussao_geral", "recurso_repetitivo", "iac", "irdr", "outro",
@@ -136,8 +144,30 @@ def normalizar(bruto: dict, mapa: dict | None) -> dict | None:
     }
 
 
+def _linhas_jsonl(linhas: Iterable[str]):
+    """Interpreta linhas JSONL, devolvendo `{}` para registros inválidos."""
+    for numero, linha in enumerate(linhas, 1):
+        linha = linha.strip()
+        if not linha:
+            continue
+        try:
+            registro = json.loads(linha)
+        except json.JSONDecodeError:
+            print(f"linha {numero}: JSON inválido, ignorada", file=sys.stderr)
+            yield {}
+            continue
+        if not isinstance(registro, dict):
+            print(f"linha {numero}: registro não é objeto, ignorada", file=sys.stderr)
+            yield {}
+            continue
+        yield registro
+
+
 def ler_arquivo(caminho: str | Path):
-    """Lê JSONL (uma linha por registro) ou CSV, ignorando linhas inválidas."""
+    """Lê JSONL (uma linha por registro), stdin ou CSV, ignorando linhas inválidas."""
+    if str(caminho) == "-":
+        yield from _linhas_jsonl(sys.stdin)
+        return
     caminho = Path(caminho)
     if caminho.suffix.lower() == ".csv":
         with caminho.open(newline="", encoding="utf-8-sig") as arquivo:
@@ -145,21 +175,7 @@ def ler_arquivo(caminho: str | Path):
         return
 
     with caminho.open(encoding="utf-8") as arquivo:
-        for numero, linha in enumerate(arquivo, 1):
-            linha = linha.strip()
-            if not linha:
-                continue
-            try:
-                registro = json.loads(linha)
-            except json.JSONDecodeError:
-                print(f"linha {numero}: JSON inválido, ignorada", file=sys.stderr)
-                yield {}
-                continue
-            if not isinstance(registro, dict):
-                print(f"linha {numero}: registro não é objeto, ignorada", file=sys.stderr)
-                yield {}
-                continue
-            yield registro
+        yield from _linhas_jsonl(arquivo)
 
 
 def copiar_lote(conn, registros: list[dict]):
@@ -213,12 +229,25 @@ FROM up
 """
 
 
-def _dry_run(arquivo: Path, mapa: dict | None, tamanho_lote: int) -> None:
+def registros_normalizados(
+    arquivo: str | Path,
+    mapa: dict | None,
+    coletor: Any | None = None,
+):
+    """Percorre a origem escolhida e devolve registros prontos para o banco."""
+    origem = coletor.coletar() if coletor is not None else ler_arquivo(arquivo)
+    for bruto in origem:
+        if coletor is not None:
+            yield normalizar(normalizar_registro(bruto, mapa), None)
+        else:
+            yield normalizar(bruto, mapa)
+
+
+def _dry_run(arquivo: Path, mapa: dict | None, tamanho_lote: int, coletor=None) -> None:
     """Normaliza e reporta sem abrir conexão com o banco."""
     validos = invalidos = duplicados = 0
     vistos: set[str] = set()
-    for linhas, bruto in enumerate(ler_arquivo(arquivo), 1):
-        registro = normalizar(bruto, mapa)
+    for linhas, registro in enumerate(registros_normalizados(arquivo, mapa, coletor), 1):
         if registro is None:
             invalidos += 1
         elif registro["fonte_id"] in vistos:
@@ -349,9 +378,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--arquivo", required=True, help="Arquivo .jsonl ou .csv")
+    ap.add_argument("--arquivo", help="Arquivo .jsonl ou .csv (use - para stdin)")
     ap.add_argument("--tribunal", required=True, help="Sigla, ex.: STJ")
     ap.add_argument("--fonte", required=True, help="Nome da origem, ex.: 'STJ dados abertos'")
+    ap.add_argument("--coletor", choices=("arquivo", "jsonl"), default="arquivo", help="Fonte local (padrão: arquivo)")
+    ap.add_argument("--origem", help="Caminho exigido por --coletor jsonl")
     ap.add_argument("--mapa", help="JSON {campo_banco: coluna_do_arquivo}")
     ap.add_argument("--lote", type=int, default=LOTE_PADRAO, help="Registros por carga (padrão: 5000)")
     ap.add_argument(
@@ -365,10 +396,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.lote < 1:
         ap.error("--lote deve ser maior que zero")
+    if args.coletor == "jsonl" and not args.origem:
+        ap.error("--coletor jsonl exige --origem")
+    if args.coletor != "jsonl" and not args.arquivo:
+        ap.error("Informe --arquivo ou use --coletor jsonl --origem")
 
-    arquivo = Path(args.arquivo)
-    if not arquivo.is_file():
-        sys.exit(f"Arquivo não encontrado: {arquivo}")
+    coletor = None
+    if args.coletor == "jsonl":
+        origem = Path(args.origem)
+        if not origem.is_file():
+            sys.exit(f"Arquivo não encontrado: {origem}")
+        coletor = ColetorJSONL(origem)
+        arquivo = origem
+    elif args.arquivo == "-":
+        arquivo = "-"
+    else:
+        arquivo = Path(args.arquivo)
+        if not arquivo.is_file():
+            sys.exit(f"Arquivo não encontrado: {arquivo}")
 
     mapa = None
     if args.mapa:
@@ -377,21 +422,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.exit(f"Mapa não encontrado: {caminho_mapa}")
         with caminho_mapa.open(encoding="utf-8") as arquivo_mapa:
             mapa = json.load(arquivo_mapa)
+        if not isinstance(mapa, dict) or not all(
+            isinstance(chave, str) and isinstance(valor, str) for chave, valor in mapa.items()
+        ):
+            sys.exit("Mapa inválido: use um objeto JSON {campo_banco: coluna_do_arquivo}.")
 
     print(f"Lendo {arquivo} (lote={args.lote:,})...", flush=True)
     if args.dry_run:
         print("Dry-run: nenhuma alteração será gravada.", flush=True)
-        _dry_run(arquivo, mapa, args.lote)
+        _dry_run(arquivo, mapa, args.lote, coletor)
         return 0
 
-    modo = args.modo
-    if modo == "auto":
-        modo = "sqlite" if os.environ.get("JLS_MODE", "").lower() == "sqlite" else "postgres"
+    modo = config.settings.modo if args.modo == "auto" else args.modo
 
     if modo == "sqlite":
-        registros = [normalizar(bruto, mapa) for bruto in ler_arquivo(arquivo)]
+        registros = list(registros_normalizados(arquivo, mapa, coletor))
         try:
-            resultado = gravar_local(registros, args.tribunal, args.fonte, os.environ.get("JLS_DB_PATH"))
+            resultado = gravar_local(registros, args.tribunal, args.fonte, str(config.settings.db_path))
         except ValueError as exc:
             sys.exit(str(exc))
         print(
@@ -402,7 +449,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     try:
-        with psycopg.connect(DATABASE_URL, autocommit=False) as conn:
+        with psycopg.connect(database_url(), autocommit=False) as conn:
             row = conn.execute(
                 "SELECT id FROM tribunais WHERE sigla = %s", (args.tribunal,)
             ).fetchone()
@@ -440,8 +487,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 lote, vistos = [], set()
 
-            for bruto in ler_arquivo(arquivo):
-                registro = normalizar(bruto, mapa) if bruto else None
+            for registro in registros_normalizados(arquivo, mapa, coletor):
                 if registro is None:
                     err += 1
                     continue

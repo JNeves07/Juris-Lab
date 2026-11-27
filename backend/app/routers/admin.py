@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app import config, db
 from app.schemas import ImportarIn, TokenIn
-from app.security import criar_token, exigir_admin
+from app.security import criar_token, exigir_admin, segredos_permitidos
 
 router = APIRouter()
 
@@ -15,6 +15,8 @@ router = APIRouter()
 @router.post("/api/admin/token")
 def token(body: TokenIn) -> dict:
     """Troca a senha administrativa por um token Bearer de 60 minutos."""
+    if not segredos_permitidos():
+        raise HTTPException(503, "Segredos de desenvolvimento não autorizados nesta instância.")
     if not secrets.compare_digest(body.password, config.settings.admin_password):
         raise HTTPException(status_code=401, detail="Senha administrativa inválida.")
     return {"access_token": criar_token(), "token_type": "bearer", "expires_in": 3600}

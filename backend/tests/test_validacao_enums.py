@@ -24,9 +24,12 @@ def cliente(monkeypatch: pytest.MonkeyPatch, tmp_path) -> TestClient:
 
     importlib.reload(config)
     importlib.reload(principal)
-    monkeypatch.setattr(
-        db, "q", lambda *args, **kwargs: None if kwargs.get("one") else []
-    )
+    def consulta(sql, params=None, one=False, write=False):
+        if one and "SELECT 1 AS ok" in sql:
+            return {"ok": 1}
+        return None if one else []
+
+    monkeypatch.setattr(db, "q", consulta)
     return TestClient(principal.app)
 
 

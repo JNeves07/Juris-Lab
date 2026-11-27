@@ -31,9 +31,12 @@ O front-end é HTML, CSS e JavaScript puro, servido pela própria API — sem bu
 
 - Busca full-text com destaque do trecho (`<mark>`), frase exata, `OU`/`OR`, `-excluir` e metadados (`numero_processo`, CNJ, classe e relator).
 - Filtros combináveis: tribunal, ramo, tipo, relator, período, vigência, pasta, tag, favoritos e paginação.
+- Acessibilidade: cartões com botões nomeados, diálogos com foco preso e `inert`, paginação com `aria-current`, alertas assertivos e ações destrutivas com desfazer.
+- Busca com link permanente: filtros, página e tamanho da página são refletidos na URL; o botão "Copiar link" compartilha o estado exato.
+- Exportação dos resultados em CSV (UTF-8 com BOM, delimitador `;`) ou JSON, respeitando os mesmos filtros.
 - Leitura completa da decisão com metadados, órgão julgador, anotações, tags, pastas, relações de entrada/saída e histórico.
 - Organização pessoal: pastas hierárquicas, tags reutilizáveis, favoritos, anotações com trecho citado, relações tipadas e buscas salvas.
-- Importador de JSONL/CSV com mapeamento de colunas, lotes, deduplicação por `hash_conteudo`, `--dry-run` e registro em `coletas`.
+- Importador de JSONL/CSV com mapeamento de colunas, lotes, deduplicação por `hash_conteudo`, `--dry-run` e registro em `coletas`; coletores locais plugáveis com contrato `Coletor`.
 - API administrativa com JWT: emissão de token, informações da instância e importação de lote no modo SQLite.
 - Docker Compose pronto (SQLite por padrão; PostgreSQL opcional via profile) e deploy serverless na Vercel.
 - Documentação OpenAPI em `/api/docs`, healthcheck em `/healthz` e detalhes operacionais em `/api/status`.
@@ -98,6 +101,8 @@ cd backend
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
+O runtime serverless usa `requirements.txt` na raiz; `pyproject.toml` mantém as mesmas dependências para o Vercel e a configuração de Ruff/pytest. Para desenvolvimento, instale os arquivos de `backend/` como no exemplo acima.
+
 Abra <http://localhost:8000>. O banco `data/jurislab.sqlite3` é criado e preenchido na primeira execução. Para usar a raiz do repositório como diretório de trabalho:
 
 ```bash
@@ -159,9 +164,14 @@ Todas as opções vêm de variáveis de ambiente. **Nunca versionar `.env`, toke
 | `JLS_ADMIN_PASSWORD` | `admin` | Senha de `POST /api/admin/token`. Troque em produção. |
 | `JLS_CORS_ORIGINS` | vazio | Origens permitidas separadas por vírgula; vazio = mesma origem. |
 | `JLS_RATE_LIMIT` / `JLS_RATE_WINDOW` | `10` / `60` | Limite de tentativas de token por IP e janela em segundos. |
+| `JLS_TRUST_PROXY` | `0` | Confia em `X-Forwarded-For`; use `1` apenas atrás de proxy conhecido. |
+| `JLS_REQUEST_ID` | `0` | Inclui `X-Request-ID` nas respostas. |
+| `JLS_ALLOW_DEFAULT_SECRETS` | `0` | Autoriza segredos de desenvolvimento apenas em demonstrações e testes. |
 | `DATABASE_URL` | `postgresql://juris:juris_dev@localhost:5432/jurisprudencia` | Conexão usada no modo `postgres`. |
 | `FRONTEND_DIR` | `<raiz>/frontend` | Diretório servido em `/` e `/static`. |
 | `LIMITE_CONTAGEM` | `10000` | Teto da contagem de resultados. |
+| `JLS_EXPORT_MAX` | `1000` | Máximo de decisões por exportação. |
+| `LOG_LEVEL` | `info` | Nível de log (`debug`, `info`, `warning`, `error`). |
 
 ## Uso da API
 
@@ -177,6 +187,14 @@ curl -G http://localhost:8000/api/busca \
   --data-urlencode 'ordem=relevancia' \
   --data-urlencode 'pagina=1' \
   --data-urlencode 'por_pagina=20'
+
+curl -G http://localhost:8000/api/busca/export \
+  --data-urlencode 'q=dano moral' \
+  --data-urlencode 'formato=csv' -o jurislab.csv
+
+curl -G http://localhost:8000/api/busca/export \
+  --data-urlencode 'status=vigente' \
+  --data-urlencode 'formato=json' -o jurislab.json
 
 curl http://localhost:8000/api/tribunais
 curl http://localhost:8000/api/estatisticas
@@ -211,6 +229,8 @@ curl -X POST http://localhost:8000/api/admin/importar \
   -d '{"tribunal":"STJ","fonte":"Importação pela API","registros":[{"fonte_id":"NOVO-1","ementa":"Decisão sobre dano moral","tipo":"acordao"}]}'
 ```
 
+O exemplo usa os valores de desenvolvimento: para que o token seja emitido, defina `JLS_ALLOW_DEFAULT_SECRETS=1`. Em produção, use segredos próprios e remova essa variável.
+
 A importação pela API está disponível no modo SQLite. No PostgreSQL use a CLI do importador.
 
 ## Sintaxe de busca
@@ -223,7 +243,7 @@ A importação pela API está disponível no modo SQLite. No PostgreSQL use a CL
 | Exclusão | `dano -prescrição` | remove decisões com o termo excluído |
 | Combinação | `"frase exata" OU termo -excluir` | combinação das regras acima |
 
-No PostgreSQL a busca usa `websearch_to_tsquery` com `pt_unaccent` (ignore acentos e flexões). No SQLite a camada de compatibilidade aplica a mesma semântica com funções equivalentes (`ts_match`, `ts_rank_cd`, `ts_headline`). Metadados também são pesquisados por `numero_processo`, `numero_cnj`, `classe` e `relator`. A contagem para em 10.000 (`total_truncado: true`) para manter a resposta rápida.
+No PostgreSQL a busca usa `websearch_to_tsquery` com `pt_unaccent` (ignora acentos e flexões, com ranqueamento por relevância). No SQLite a camada de compatibilidade implementa uma aproximação determinística: corresponder substrings, ignorar acentos e caixa e pontuar termos da consulta; não há stemming nem ranqueamento `ts_rank_cd` completo. Metadados também são pesquisados por `numero_processo`, `numero_cnj`, `classe` e `relator`. A contagem para em 10.000 (`total_truncado: true`) para manter a resposta rápida.
 
 ## Importação de dados
 
@@ -245,9 +265,18 @@ python -m importador.importar --arquivo dados/exemplo.jsonl \
 
 `--mapa` traduz nomes de colunas da fonte (`{"fonte_id": "id_documento", ...}`) e `--lote` controla o tamanho do lote no PostgreSQL. Linhas inválidas são ignoradas e contabilizadas; cada execução fica registrada em `coletas`.
 
+Coletores locais são classes com `coletar() -> dict` e `fechar()`. O coletor JSONL incluído (`backend/importador/coletores/jsonl.py`) lê um arquivo ou a entrada padrão; `--coletor jsonl --origem -` permite encadear outro coletor pelo pipe:
+
+```bash
+type dados\exemplo.jsonl | python -m importador.importar --coletor jsonl --origem - \
+  --tribunal STJ --fonte "Exemplo (fictício)" --modo sqlite
+```
+
+`dados/coletores.exemplo.json` documenta o contrato. Coletores http não são incluídos: a coleta deve respeitar a fonte oficial e seus termos de uso.
+
 ## Testes e qualidade
 
-A suíte é totalmente offline (sem rede e sem PostgreSQL): 87 testes cobrem serviços, importador, validações, API com dublês, SQLite real, JWT/admin e entry point da Vercel.
+A suíte é totalmente offline (sem rede e sem PostgreSQL): 123 testes cobrem serviços, importador e coletores, validações, configuração, limites, API com dublês, SQLite real, JWT/admin e entry point da Vercel.
 
 ```bash
 # A partir da raiz
@@ -274,8 +303,8 @@ Juris-Lab/
 ├── README.md                    # este documento
 ├── CONTRIBUTING.md
 ├── Makefile
-├── pyproject.toml               # configuração do Ruff/pytest na raiz
-├── requirements (em backend/)
+├── requirements.txt             # dependências do runtime @vercel/python
+├── pyproject.toml               # metadados, dependências e configuração do Ruff/pytest
 ├── docker-compose.yml           # API SQLite + perfil opcional postgres
 ├── vercel.json / render.yaml    # deploy serverless
 ├── .env.example
@@ -291,7 +320,9 @@ Juris-Lab/
 │   │   ├── config.py / db.py / loja.py
 │   │   ├── security.py / schemas.py / services.py / main.py
 │   │   └── routers/{status,busca,decisoes,organizacao,admin}.py
-│   ├── importador/importar.py
+│   ├── importador/
+│   │   ├── importar.py
+│   │   └── coletores/{__init__,base,jsonl,mapeador}.py
 │   └── tests/
 ├── frontend/
 │   ├── index.html
@@ -300,6 +331,7 @@ Juris-Lab/
 │   └── assets/
 ├── data/                        # SQLite gerado localmente (ignorado no git)
 ├── dados/exemplo.jsonl          # decisões fictícias
+├── dados/coletores.exemplo.json # contrato de um coletor local
 ├── db/01_schema.sql / 02_tribunais.sql
 └── docs/original/               # projeto original preservado
 ```
@@ -314,13 +346,13 @@ Use canais oficiais e respeite os termos de uso: STJ (dados abertos), STF (dados
 - **Confira a fonte oficial**: a ferramenta organiza e pesquisa, mas não substitui a consulta no site do tribunal antes de citar uma decisão.
 - **Vigência é curadoria**: `status` é manual, não automático.
 - Registros em `dados/exemplo.jsonl` são fictícios e servem apenas para teste.
-- Em produção, troque `JLS_JWT_SECRET` e `JLS_ADMIN_PASSWORD` (a API sinaliza `segredos_padrao: true` em `/api/status`).
+- Em produção, troque `JLS_JWT_SECRET` e `JLS_ADMIN_PASSWORD`. Com valores padrão, a emissão/validação de JWT exige `JLS_ALLOW_DEFAULT_SECRETS=1` e `/api/status` sinaliza `segredos_padrao: true`.
 
 ## Próximos passos
 
 1. embeddings com pgvector e índice HNSW para busca semântica;
 2. alertas de mudança usando `buscas_salvas` + `historico_alteracoes`;
-3. coletores por tribunal gerando JSONL padronizado;
+3. coletores oficiais por tribunal gerando JSONL padronizado (o contrato local já está disponível);
 4. resumo assistido por IA com revisão humana obrigatória;
 5. migração da indexação para OpenSearch/Meilisearch em acervos muito grandes.
 

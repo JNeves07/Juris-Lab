@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import importlib
+from dataclasses import replace
 from typing import Any
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db
+from app import config, db
 
 
 @pytest.fixture
@@ -24,9 +26,14 @@ def cliente(monkeypatch: pytest.MonkeyPatch, tmp_path) -> TestClient:
 
     importlib.reload(config)
     importlib.reload(principal)
-    monkeypatch.setattr(
-        db, "q", lambda *args, **kwargs: None if kwargs.get("one") else []
-    )
+    def consulta(sql, params=None, one=False, write=False):
+        if one and "SELECT 1 AS ok" in sql:
+            return {"ok": 1}
+        if one and "reltuples" in sql:
+            return {"n": 7}
+        return None if one else []
+
+    monkeypatch.setattr(db, "q", consulta)
     return TestClient(principal.app)
 
 
@@ -331,6 +338,147 @@ def test_estatico_index_e_arquivo(cliente):
     resposta = cliente.get("/static/app.js")
     assert resposta.status_code == 200
     assert resposta.text == "console.log('ok')"
+
+
+def cliente_configurado(monkeypatch, tmp_path, **variaveis) -> tuple[TestClient, Any]:
+    """Cria uma app isolada com variáveis de ambiente específicas."""
+    frontend = tmp_path / "frontend"
+    frontend.mkdir(exist_ok=True)
+    (frontend / "index.html").write_text("<h1>Juris</h1>", encoding="utf-8")
+    monkeypatch.setenv("FRONTEND_DIR", str(frontend))
+    for chave, valor in variaveis.items():
+        monkeypatch.setenv(chave, str(valor))
+
+    import app.main as principal
+
+    importlib.reload(config)
+    importlib.reload(principal)
+    return TestClient(principal.criar_app()), principal
+
+
+def test_exportar_csv(cliente, monkeypatch):
+    linha = {
+        "numero_processo": "REsp 1/SP", "classe": "REsp", "tribunal": "STJ",
+        "relator": "Ministro Exemplo", "data_julgamento": "2024-01-02",
+        "status": "vigente", "ementa": "<mark>Dano</mark>   moral",
+    }
+    monkeypatch.setattr(db, "q", fake_q([("WITH pagina AS", [linha])]))
+    resposta = cliente.get("/api/busca/export", params={"q": "dano", "formato": "csv"})
+
+    assert resposta.status_code == 200
+    assert resposta.content.startswith(b"\xef\xbb\xbf")
+    assert 'attachment; filename="jurislab-' in resposta.headers["content-disposition"]
+    assert resposta.headers["cache-control"] == "no-store"
+    texto = resposta.content.decode("utf-8-sig")
+    assert texto.splitlines()[0] == (
+        '"Número do processo";"Classe";"Tribunal";"Relator";'
+        '"Data de julgamento";"Situação";"Ementa"'
+    )
+    assert '"REsp 1/SP";"REsp";"STJ"' in texto
+    assert "Dano moral" in texto
+    assert "<mark>" not in texto
+
+
+def test_exportar_json(cliente, monkeypatch):
+    linha = {
+        "numero_processo": "HC 2/CE", "classe": "HC", "tribunal": "STJ",
+        "relator": "Ministra Exemplo", "data_julgamento": "2024-03-04",
+        "status": "superada", "ementa": "x" * 1_500,
+    }
+    monkeypatch.setattr(db, "q", fake_q([("WITH pagina AS", [linha])]))
+    resposta = cliente.get("/api/busca/export", params={"formato": "json"})
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert isinstance(corpo, list) and len(corpo) == 1
+    assert list(corpo[0]) == [
+        "numero_processo", "classe", "tribunal", "relator",
+        "data_julgamento", "status", "ementa",
+    ]
+    assert corpo[0]["ementa"].endswith("…")
+    assert len(corpo[0]["ementa"]) == 1_000
+
+
+def test_exportar_respeita_limite_configurado(cliente, monkeypatch):
+    chamadas: list[dict[str, Any]] = []
+
+    def executar(sql, params=None, one=False, write=False):
+        chamadas.append(dict(params or {}))
+        return [{}]
+
+    monkeypatch.setattr(db, "q", executar)
+    monkeypatch.setattr(config, "settings", replace(config.settings, export_max=2))
+    resposta = cliente.get("/api/busca/export", params={"formato": "json"})
+    assert resposta.status_code == 200
+    assert chamadas[0]["limit"] == 2
+
+    invalido = cliente.get("/api/busca/export", params={"formato": "xls"})
+    assert invalido.status_code == 422
+
+
+def test_busca_rejeita_enums_sintaticamente_validos(cliente):
+    for campo in ("status", "tipo"):
+        resposta = cliente.get("/api/busca", params={campo: "foo"})
+        assert resposta.status_code == 422
+        assert "inválido" in str(resposta.json()["detail"])
+
+
+def test_sonda_de_banco_falha_sem_vazar_detalhes(cliente, monkeypatch):
+    def quebrado(*args, **kwargs):
+        raise RuntimeError("psycopg: senha=super-secreta-xyz")
+
+    monkeypatch.setattr(db, "q", quebrado)
+    for caminho in ("/healthz", "/api/status"):
+        resposta = cliente.get(caminho)
+        assert resposta.status_code == 503
+        assert "super-secreta" not in resposta.text
+        assert "Traceback" not in resposta.text
+
+
+def test_limite_de_token_ignora_forwarded_for_padrao(monkeypatch, tmp_path):
+    cliente, principal = cliente_configurado(
+        monkeypatch, tmp_path,
+        JLS_RATE_LIMIT=2, JLS_RATE_WINDOW=60, JLS_ALLOW_DEFAULT_SECRETS=1,
+    )
+    principal._hits.clear()
+    corpo = {"password": "admin"}
+
+    for _ in range(2):
+        assert cliente.post(
+            "/api/admin/token", json=corpo, headers={"x-forwarded-for": "203.0.113.9"}
+        ).status_code == 200
+    assert cliente.post("/api/admin/token", json=corpo).status_code == 429
+    assert "203.0.113.9" not in principal._hits
+    assert len(principal._hits) == 1
+
+
+def test_limite_de_token_respeita_proxy_opt_in(monkeypatch, tmp_path):
+    cliente, principal = cliente_configurado(
+        monkeypatch, tmp_path,
+        JLS_RATE_LIMIT=1, JLS_RATE_WINDOW=60,
+        JLS_ALLOW_DEFAULT_SECRETS=1, JLS_TRUST_PROXY=1,
+    )
+    principal._hits.clear()
+    corpo = {"password": "admin"}
+    assert cliente.post(
+        "/api/admin/token", json=corpo, headers={"x-forwarded-for": "203.0.113.1"}
+    ).status_code == 200
+    assert cliente.post(
+        "/api/admin/token", json=corpo, headers={"x-forwarded-for": "203.0.113.2"}
+    ).status_code == 200
+    assert cliente.post(
+        "/api/admin/token", json=corpo, headers={"x-forwarded-for": "203.0.113.1"}
+    ).status_code == 429
+
+
+def test_request_id_e_habilitado_por_configuracao(monkeypatch, tmp_path):
+    cliente, _ = cliente_configurado(monkeypatch, tmp_path, JLS_REQUEST_ID=1)
+    invalidado = cliente.get("/healthz", headers={"x-request-id": "nao-e-uuid"})
+    assert str(UUID(invalidado.headers["x-request-id"])) == invalidado.headers["x-request-id"]
+
+    enviado = "123e4567-e89b-12d3-a456-426614174000"
+    repetido = cliente.get("/healthz", headers={"x-request-id": enviado})
+    assert repetido.headers["x-request-id"] == enviado
 
 
 def test_lifespan_abre_e_fecha_pool(monkeypatch):

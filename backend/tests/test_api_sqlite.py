@@ -6,7 +6,7 @@ import importlib
 import pytest
 from fastapi.testclient import TestClient
 
-from app import config, db, loja, main
+from app import config, db, loja, main, security
 
 
 @pytest.fixture
@@ -93,3 +93,71 @@ def test_admin_token_e_importacao(cliente):
     assert importacao.status_code == 200
     assert importacao.json()["inseridas"] == 1
     assert cliente.get("/api/busca", params={"q": "REsp 9999999/SP"}).json()["total"] == 1
+
+
+def test_exportacao_real_csv_e_json(cliente):
+    csv_resposta = cliente.get("/api/busca/export", params={"formato": "csv"})
+    assert csv_resposta.status_code == 200
+    assert csv_resposta.text.startswith("\ufeff")
+    assert "REsp 1000001/SP" in csv_resposta.text
+
+    json_resposta = cliente.get("/api/busca/export", params={"formato": "json"})
+    registros = json_resposta.json()
+    assert len(registros) == 5
+    assert set(registros[0]) == {
+        "numero_processo", "classe", "tribunal", "relator",
+        "data_julgamento", "status", "ementa",
+    }
+
+
+def test_exportacao_com_filtro_invalido(cliente):
+    resposta = cliente.get("/api/busca/export", params={"status": "inexistente"})
+    assert resposta.status_code == 422
+
+
+def test_status_e_healthz_com_banco_indisponivel(cliente, monkeypatch):
+    def quebrado(*args, **kwargs):
+        raise OSError("detalhe interno do banco")
+
+    monkeypatch.setattr(db, "q", quebrado)
+    for caminho in ("/healthz", "/api/status"):
+        resposta = cliente.get(caminho)
+        assert resposta.status_code == 503
+        assert "detalhe interno" not in resposta.text
+
+
+def test_importacao_pela_api_rejeita_itens_invalidos(cliente):
+    token = cliente.post("/api/admin/token", json={"password": "senha-de-teste"}).json()["access_token"]
+    cabecalho = {"Authorization": f"Bearer {token}"}
+
+    invalido = cliente.post(
+        "/api/admin/importar", headers=cabecalho,
+        json={"registros": ["nao e objeto"], "tribunal": "STJ"},
+    )
+    assert invalido.status_code == 422
+
+    gigante = cliente.post(
+        "/api/admin/importar", headers=cabecalho,
+        json={"registros": [{"fonte_id": "x", "ementa": "a" * 20_001}], "tribunal": "STJ"},
+    )
+    assert gigante.status_code == 422
+
+
+def test_token_com_segredos_padrao_exige_autorizacao(cliente, monkeypatch):
+    from dataclasses import replace
+
+    padrao = replace(
+        config.settings,
+        jwt_secret="dev-only-jurislab-change-me-in-production",
+        admin_password="admin",
+        permitir_segredos_padrao=False,
+    )
+    monkeypatch.setattr(config, "settings", padrao)
+    assert cliente.post("/api/admin/token", json={"password": "admin"}).status_code == 503
+
+    monkeypatch.setattr(config, "settings", replace(padrao, permitir_segredos_padrao=True))
+    resposta = cliente.post("/api/admin/token", json={"password": "admin"})
+    assert resposta.status_code == 200
+    assert security.validar_token(resposta.json()["access_token"], replace(
+        padrao, permitir_segredos_padrao=True
+    ))["aud"] == security.AUDIENCIA

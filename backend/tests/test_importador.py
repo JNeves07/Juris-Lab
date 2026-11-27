@@ -3,10 +3,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
+from app import config
 from importador import importar
+from importador.coletores import ColetorJSONL, normalizar_registro
 
 
 def test_parse_data_iso():
@@ -193,3 +197,77 @@ def test_main_lote_invalido(tmp_path):
                 "--lote", "0",
             ]
         )
+
+
+def test_coletor_jsonl_produz_registros_brutos(tmp_path, capsys):
+    caminho = tmp_path / "brutos.jsonl"
+    caminho.write_text(
+        '{"id_documento": "A", "ementa": "Texto A"}\n'
+        "linha quebrada\n"
+        '{"id_documento": "B", "ementa": "Texto B"}\n',
+        encoding="utf-8",
+    )
+    registros = list(ColetorJSONL(caminho).coletar())
+    assert registros[0]["id_documento"] == "A"
+    assert registros[1] == {}
+    assert registros[2]["id_documento"] == "B"
+    assert "linha 2" in capsys.readouterr().err
+
+
+def test_normalizar_registro_com_mapa_e_caminho_aninhado():
+    bruto = {
+        "id_documento": "DOC-1",
+        "conteudo": {"texto": "Ementa encontrada"},
+        "metadados": {"numero": "REsp 1/SP"},
+    }
+    resultado = normalizar_registro(
+        bruto, {"fonte_id": "id_documento", "ementa": "conteudo.texto", "numero_processo": "metadados.numero"}
+    )
+    assert resultado == {
+        "fonte_id": "DOC-1", "ementa": "Ementa encontrada", "numero_processo": "REsp 1/SP"
+    }
+
+
+def test_normalizar_registro_sem_mapa_filtra_campos_conhecidos():
+    bruto = {"fonte_id": "A", "ementa": "E", "campo_desconhecido": 1}
+    assert normalizar_registro(bruto) == {"fonte_id": "A", "ementa": "E"}
+    assert normalizar_registro([]) == {}
+
+
+def test_main_com_coletor_jsonl_e_mapa_exemplo(tmp_path, capsys):
+    origem = tmp_path / "coleta.jsonl"
+    origem.write_text(
+        '{"id_documento":"C-1","conteudo":{"texto":"Ementa mapeada"},'
+        '"metadados":{"numero":"REsp 42/SP"}}\n',
+        encoding="utf-8",
+    )
+    mapa = Path(__file__).resolve().parents[2] / "dados" / "coletores.exemplo.json"
+    codigo = importar.main([
+        "--coletor", "jsonl", "--origem", str(origem),
+        "--tribunal", "STJ", "--fonte", "Coletor local",
+        "--mapa", str(mapa), "--dry-run",
+    ])
+    assert codigo == 0
+    assert "Dry-run concluído: 1 válidos" in capsys.readouterr().out
+
+
+def test_main_coletor_jsonl_exige_origem_e_mapa_valido(tmp_path):
+    with pytest.raises(SystemExit):
+        importar.main(["--coletor", "jsonl", "--tribunal", "STJ", "--fonte", "Teste"])
+
+    mapa = tmp_path / "mapa.json"
+    mapa.write_text('["fonte_id"]', encoding="utf-8")
+    origem = tmp_path / "coleta.jsonl"
+    origem.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="Mapa inválido"):
+        importar.main([
+            "--coletor", "jsonl", "--origem", str(origem),
+            "--tribunal", "STJ", "--fonte", "Teste", "--mapa", str(mapa),
+        ])
+
+
+def test_database_url_usa_configuracao_atual(monkeypatch):
+    monkeypatch.setattr(
+        config, "settings", replace(config.settings, database_url="postgresql:// outro/db")
+    )
+    assert importar.database_url() == "postgresql:// outro/db"

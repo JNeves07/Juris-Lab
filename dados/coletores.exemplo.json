@@ -1,0 +1,12 @@
+{
+  "fonte_id": "id_documento",
+  "ementa": "conteudo.texto",
+  "numero_processo": "metadados.numero",
+  "classe": "metadados.classe",
+  "relator": "metadados.relator",
+  "orgao_julgador": "metadados.orgao",
+  "tipo": "metadados.tipo",
+  "data_julgamento": "metadados.data_julgamento",
+  "data_publicacao": "metadados.data_publicacao",
+  "fonte_url": "url_publica"
+}

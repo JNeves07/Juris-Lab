@@ -160,3 +160,32 @@ def test_busca_texto_tambem_encontra_metadados():
 def test_busca_sem_fallback_like_quando_so_operadores():
     _, params = services.construir_consulta_busca(texto="-somente")
     assert "like_q" not in params
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor", "mensagem"),
+    [
+        ("status", "foo", "Status inválido"),
+        ("tipo", "foo", "Tipo inválido"),
+        ("status", "qualquer", "Status inválido"),
+        ("tipo", "acordao_inventado", "Tipo inválido"),
+    ],
+)
+def test_enums_sintaticamente_validos_mas_desconhecidos(campo, valor, mensagem):
+    with pytest.raises(ValueError, match=mensagem):
+        services.construir_filtros_busca(**{campo: valor})
+    with pytest.raises(ValueError, match=mensagem):
+        services.construir_consulta_busca(**{campo: valor})
+
+
+def test_enums_validos_sao_normalizados():
+    where, valores, _ = services.construir_filtros_busca(status="VIGENTE", tipo="ACORDAO")
+    assert where
+    assert valores["status"] == "vigente"
+    assert valores["tipo"] == "acordao"
+
+
+def test_consulta_de_exportacao_inclui_ementa_e_limite():
+    sql, params = services.construir_consulta_busca(ordem="data_desc", pagina=1, por_pagina=25)
+    assert "p.ementa" in sql
+    assert params["limit"] == 25

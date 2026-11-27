@@ -8,6 +8,7 @@ from typing import Any
 
 CONFIG = "pt_unaccent"
 LIMITE_CONTAGEM = 10_000
+LIMITE_EMENTA_EXPORT = 1_000
 ORDENS_PERMITIDAS = ("relevancia", "data_desc", "data_asc")
 IDENTIFICADOR_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
 FROM_SQL = "FROM decisoes d JOIN tribunais t ON t.id = d.tribunal_id"
@@ -107,6 +108,9 @@ def construir_filtros_busca(
     favoritos: bool = False,
 ) -> tuple[list[str], dict[str, Any], bool]:
     """Constrói cláusulas WHERE e parâmetros; nenhum dado do usuário é concatenado."""
+    # Importação local evita ciclo: schemas importa `validar_identificador` daqui.
+    from app.schemas import STATUS_PERMITIDOS, TIPOS_DECISAO, validar_enum
+
     validar_periodo(data_ini, data_fim)
     where = ["1=1"]
     params: dict[str, Any] = {"cfg": CONFIG}
@@ -136,10 +140,10 @@ def construir_filtros_busca(
         params["ramo"] = ramo
     if tipo:
         where.append("d.tipo = %(tipo)s::tipo_decisao")
-        params["tipo"] = validar_identificador(tipo, "Tipo")
+        params["tipo"] = validar_enum(tipo, TIPOS_DECISAO, "Tipo")
     if status:
         where.append("d.status = %(status)s::status_vigencia")
-        params["status"] = validar_identificador(status, "Status")
+        params["status"] = validar_enum(status, STATUS_PERMITIDOS, "Status")
     if relator:
         where.append("d.relator ILIKE %(relator)s")
         params["relator"] = f"%{relator}%"
@@ -213,7 +217,7 @@ def construir_consulta_busca(
             LIMIT %(limit)s OFFSET %(offset)s
         )
         SELECT p.id, p.tipo, p.numero_processo, p.classe, p.relator, p.data_julgamento,
-               p.data_publicacao, p.status, p.tribunal, p.rank,
+               p.data_publicacao, p.status, p.tribunal, p.rank, p.ementa,
                {destaque_sql} AS trecho,
                EXISTS (SELECT 1 FROM favoritos f WHERE f.decisao_id = p.id) AS favorito
         FROM pagina p

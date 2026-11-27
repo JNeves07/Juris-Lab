@@ -19,6 +19,7 @@ __pycache__/
 dados/*
 !dados/exemplo.jsonl
 !dados/*.example.*
+!dados/coletores.exemplo.json
 
 # Banco local gerado automaticamente (modo SQLite)
 data/*.sqlite3*

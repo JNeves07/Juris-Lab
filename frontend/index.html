@@ -48,10 +48,19 @@
       <div class="sidebar-scroll">
         <section class="box">
           <div class="box-head">
-            <h2 class="box-titulo">Filtros</h2>
-            <button class="btn-link" type="button" data-action="limpar">Limpar</button>
+            <h2 class="box-titulo" id="filtrosTitulo">Filtros</h2>
+            <div class="box-acoes">
+              <button class="btn-link" type="button" data-action="limpar">Limpar</button>
+              <button class="btn-link btn-fechar-filtros" type="button" data-action="fechar-filtros">Fechar</button>
+            </div>
           </div>
 
+          <div class="campo">
+            <label for="fRamo">Ramo do tribunal</label>
+            <select id="fRamo">
+              <option value="">Todos os ramos</option>
+            </select>
+          </div>
           <div class="campo">
             <label for="fTribunal">Tribunal</label>
             <select id="fTribunal" multiple aria-describedby="tribunalAjuda"></select>
@@ -78,6 +87,7 @@
               <option value="vigente">Vigente</option>
               <option value="superada">Superada</option>
               <option value="revogada">Revogada</option>
+              <option value="desconhecido">Desconhecido</option>
             </select>
           </div>
           <div class="campo">
@@ -86,18 +96,28 @@
           </div>
           <div class="campo">
             <label for="fIni">Julgado a partir de</label>
-            <input type="date" id="fIni">
+            <input type="date" id="fIni" aria-describedby="dataErro">
           </div>
           <div class="campo">
             <label for="fFim">Julgado até</label>
-            <input type="date" id="fFim">
+            <input type="date" id="fFim" aria-describedby="dataErro">
           </div>
+          <p class="ajuda erro" id="dataErro" role="alert" hidden>A data inicial não pode ser posterior à data final.</p>
           <div class="campo">
             <label for="fOrdem">Ordenar por</label>
             <select id="fOrdem">
               <option value="relevancia">Relevância</option>
               <option value="data_desc">Mais recentes</option>
               <option value="data_asc">Mais antigas</option>
+            </select>
+          </div>
+          <div class="campo">
+            <label for="fPorPagina">Resultados por página</label>
+            <select id="fPorPagina">
+              <option value="10">10</option>
+              <option value="20" selected>20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
             </select>
           </div>
 
@@ -176,7 +196,17 @@
             <h2 class="secao-titulo" id="resultadosTitulo">Resultados</h2>
             <p class="resumo" id="resumo" aria-live="polite">Carregando decisões…</p>
           </div>
-          <p class="escopo" id="escopo"></p>
+          <div class="resultados-acoes">
+            <p class="escopo" id="escopo"></p>
+            <div class="acoes-busca">
+              <button class="btn btn-outline" type="button" id="btnCopiarLink" data-action="copiar-link"
+                      aria-label="Copiar link permanente desta busca">Copiar link</button>
+              <button class="btn btn-outline" type="button" id="btnExportarCsv" data-action="exportar-csv"
+                      aria-label="Exportar resultados em CSV">CSV</button>
+              <button class="btn btn-outline" type="button" id="btnExportarJson" data-action="exportar-json"
+                      aria-label="Exportar resultados em JSON">JSON</button>
+            </div>
+          </div>
         </div>
 
         <div class="chips-ativos" id="chipsAtivos" aria-label="Filtros ativos"></div>
@@ -192,6 +222,7 @@
     <div class="painel-in" id="painelIn"></div>
   </aside>
 
-  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div class="toasts" id="alertas" role="alert" aria-live="assertive" aria-atomic="true"></div>
 </body>
 </html>

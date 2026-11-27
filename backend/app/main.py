@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
+import uuid
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from typing import Any
@@ -16,10 +18,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import config, db
+from app.config import Settings
 from app.routers import admin, busca, decisoes, organizacao, status
 
 log = logging.getLogger(__name__)
-_hits: dict[str, deque] = defaultdict(deque)
+_hits: dict[str, deque[float]] = defaultdict(deque)
+LIMITE_IPS = 2_048
+IP_RE = re.compile(r"^[A-Za-z0-9:._-]{1,64}$")
 
 MENSAGENS_STATUS = {
     400: "Requisição inválida.",
@@ -93,8 +98,75 @@ def traduzir_erros(erros: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return traduzidos
 
 
+def ip_cliente(request: Request, cfg: Settings | None = None) -> str:
+    """Usa o IP direto da conexão, salvo opt-in explícito para proxy confiável."""
+    configuracao = cfg or config.settings
+    if configuracao.trust_proxy:
+        encaminhado = request.headers.get("x-forwarded-for", "")[:128]
+        candidato = encaminhado.split(",")[0].strip()
+        if IP_RE.fullmatch(candidato):
+            return candidato
+    return request.client.host if request.client else "?"
+
+
+def _limpar_hits(agora: float, cfg: Settings) -> None:
+    """Descarta janelas vencidas e limita a quantidade de IPs rastreados."""
+    corte = agora - max(cfg.rate_window, 1)
+    for ip in [chave for chave, janela in _hits.items() if not janela or janela[-1] < corte]:
+        del _hits[ip]
+    while len(_hits) > LIMITE_IPS:
+        mais_antigo = min(_hits, key=lambda chave: _hits[chave][-1] if _hits[chave] else 0)
+        del _hits[mais_antigo]
+
+
+def registrar_tentativa(ip: str, cfg: Settings | None = None) -> bool:
+    """Registra uma tentativa de token; False indica janela excedida."""
+    configuracao = cfg or config.settings
+    agora = time.monotonic()
+    janela = _hits[ip]
+    while janela and janela[0] < agora - configuracao.rate_window:
+        janela.popleft()
+    if len(janela) >= configuracao.rate_limit:
+        _limpar_hits(agora, configuracao)
+        return False
+    janela.append(agora)
+    _limpar_hits(agora, configuracao)
+    return True
+
+
+def definir_request_id(request: Request, cfg: Settings | None = None) -> str | None:
+    """Reusa um UUID válido do cliente ou gera um novo, quando habilitado."""
+    configuracao = cfg or config.settings
+    if not configuracao.request_id:
+        return None
+    informado = request.headers.get("x-request-id", "")[:64].strip()
+    try:
+        return str(uuid.UUID(informado)) if informado else str(uuid.uuid4())
+    except ValueError:
+        return str(uuid.uuid4())
+
+
+def aplicar_cabecalhos(request: Request, resposta, identificador: str | None = None):
+    """Cabeçalhos de segurança aplicados até mesmo nas respostas de limite."""
+    resposta.headers["X-Content-Type-Options"] = "nosniff"
+    resposta.headers["X-Frame-Options"] = "DENY"
+    resposta.headers["Referrer-Policy"] = "no-referrer"
+    resposta.headers["Cache-Control"] = (
+        "no-store" if request.url.path.startswith("/api/") else "public, max-age=300"
+    )
+    resposta.headers["Content-Security-Policy"] = (
+        "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; script-src 'self'; connect-src 'self'"
+    )
+    if identificador:
+        resposta.headers["X-Request-ID"] = identificador
+        request.state.request_id = identificador
+    return resposta
+
+
 def criar_app() -> FastAPI:
     """Cria a aplicação; usada por uvicorn, testes e pelo handler da Vercel."""
+    config.configurar_logging()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -132,34 +204,26 @@ def criar_app() -> FastAPI:
 
     @aplicacao.middleware("http")
     async def seguranca_e_limites(request: Request, call_next):
+        configuracao = config.settings
+        identificador = definir_request_id(request, configuracao)
         if request.url.path == "/api/admin/token" and request.method == "POST":
-            ip = (
-                request.headers.get("x-forwarded-for")
-                or (request.client.host if request.client else "?")
-            ).split(",")[0].strip()
-            janela, agora = _hits[ip], time.monotonic()
-            while janela and janela[0] < agora - config.settings.rate_window:
-                janela.popleft()
-            if len(janela) >= config.settings.rate_limit:
-                return resposta_erro(429, "Muitas tentativas. Aguarde um minuto.", "Limite de requisições excedido.")
-            janela.append(agora)
+            if not registrar_tentativa(ip_cliente(request, configuracao), configuracao):
+                return aplicar_cabecalhos(
+                    request,
+                    resposta_erro(
+                        429,
+                        "Muitas tentativas. Aguarde um minuto.",
+                        "Limite de requisições excedido.",
+                    ),
+                    identificador,
+                )
 
         try:
             resposta = await call_next(request)
         except Exception:
             log.exception("Erro não tratado em %s", request.url.path)
             resposta = resposta_erro(500, "Erro interno no servidor.", MENSAGENS_STATUS[500])
-        resposta.headers["X-Content-Type-Options"] = "nosniff"
-        resposta.headers["X-Frame-Options"] = "DENY"
-        resposta.headers["Referrer-Policy"] = "no-referrer"
-        resposta.headers["Cache-Control"] = (
-            "no-store" if request.url.path.startswith("/api/") else "public, max-age=300"
-        )
-        resposta.headers["Content-Security-Policy"] = (
-            "default-src 'self'; style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; script-src 'self'; connect-src 'self'"
-        )
-        return resposta
+        return aplicar_cabecalhos(request, resposta, identificador)
 
     if config.settings.cors_origins:
         aplicacao.add_middleware(

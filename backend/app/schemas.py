@@ -6,10 +6,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.config import settings
+from app import config
 from app.services import validar_identificador
 
 STATUS_PERMITIDOS = ("vigente", "superada", "revogada", "desconhecido")
+TIPOS_DECISAO = (
+    "acordao", "decisao_monocratica", "sumula", "sumula_vinculante",
+    "repercussao_geral", "recurso_repetitivo", "iac", "irdr", "outro",
+)
 TIPOS_RELACAO = (
     "segue", "cita", "distingue", "supera", "superada_por", "confirma", "contraria"
 )
@@ -27,15 +31,15 @@ def validar_enum(valor: str, permitidos: tuple[str, ...], campo: str) -> str:
 class Nome(BaseModel):
     """Nome de pasta ou tag, com pai opcional."""
 
-    nome: str = Field(min_length=1, max_length=settings.max_nome)
+    nome: str = Field(min_length=1, max_length=config.settings.max_nome)
     pai_id: int | None = Field(default=None, ge=1)
 
 
 class Texto(BaseModel):
     """Anotação de decisão, com trecho opcional."""
 
-    texto: str = Field(min_length=1, max_length=settings.max_texto)
-    trecho: str | None = Field(default=None, max_length=settings.max_trecho)
+    texto: str = Field(min_length=1, max_length=config.settings.max_texto)
+    trecho: str | None = Field(default=None, max_length=config.settings.max_trecho)
 
 
 class Relacao(BaseModel):
@@ -43,7 +47,7 @@ class Relacao(BaseModel):
 
     destino_id: int = Field(ge=1)
     tipo: str = Field(max_length=40)
-    nota: str | None = Field(default=None, max_length=settings.max_nota)
+    nota: str | None = Field(default=None, max_length=config.settings.max_nota)
 
     @field_validator("tipo")
     @classmethod
@@ -65,14 +69,14 @@ class StatusIn(BaseModel):
 class BuscaSalva(BaseModel):
     """Consulta salva pelo usuário."""
 
-    nome: str = Field(min_length=1, max_length=settings.max_nome)
-    consulta: str = Field(default="", max_length=settings.max_consulta)
+    nome: str = Field(min_length=1, max_length=config.settings.max_nome)
+    consulta: str = Field(default="", max_length=config.settings.max_consulta)
     filtros: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("filtros")
     @classmethod
     def limitar_filtros(cls, valor: dict[str, Any]) -> dict[str, Any]:
-        if len(json.dumps(valor, ensure_ascii=False, default=str)) > settings.max_consulta:
+        if len(json.dumps(valor, ensure_ascii=False, default=str)) > config.settings.max_consulta:
             raise ValueError("Filtros muito grandes.")
         return valor
 
@@ -89,3 +93,22 @@ class ImportarIn(BaseModel):
     registros: list[dict[str, Any]] = Field(min_length=1, max_length=1000)
     tribunal: str = Field(default="STJ", max_length=10)
     fonte: str = Field(default="Importação pela API", max_length=200)
+
+    @field_validator("registros")
+    @classmethod
+    def validar_registros(cls, valor: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Rejeita formatos e tamanhos que fariam o importador falhar com 500."""
+        for indice, registro in enumerate(valor, 1):
+            if not isinstance(registro, dict):
+                raise ValueError(f"Registro {indice} deve ser um objeto.")
+            if len(json.dumps(registro, ensure_ascii=False, default=str)) > config.settings.max_texto:
+                raise ValueError(f"Registro {indice} excede o tamanho permitido.")
+            for chave, item in registro.items():
+                if not isinstance(chave, str) or len(chave) > 100:
+                    raise ValueError(f"Registro {indice} contém chave inválida.")
+                if isinstance(item, (str, int, float, bool, type(None))):
+                    continue
+                if isinstance(item, (list, tuple)) and all(isinstance(x, str) for x in item):
+                    continue
+                raise ValueError(f"Registro {indice} contém valor não suportado em '{chave}'.")
+        return valor

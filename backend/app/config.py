@@ -6,6 +6,7 @@ SQLite com dados de exemplo e está pronta para uso. Para produção, defina
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,6 +74,7 @@ class Settings:
     frontend_dir: Path
     cors_origins: tuple[str, ...]
     limite_contagem: int
+    export_max: int
     pool_min_size: int
     pool_max_size: int
     jwt_secret: str
@@ -84,12 +86,21 @@ class Settings:
     max_trecho: int
     max_nota: int
     max_consulta: int
+    trust_proxy: bool
+    request_id: bool
+    permitir_segredos_padrao: bool
+    log_level: str
     versao: str = VERSAO
 
     @property
     def secrets_padrao(self) -> bool:
         """Indica que os segredos ainda são os de desenvolvimento."""
         return self.jwt_secret.startswith("dev-only-") or self.admin_password == "admin"
+
+    @property
+    def segredos_utilizaveis(self) -> bool:
+        """Segredos padrão só são aceitos com autorização explícita (demo/testes)."""
+        return not self.secrets_padrao or self.permitir_segredos_padrao
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -102,6 +113,7 @@ class Settings:
             frontend_dir=_frontend_dir(),
             cors_origins=_origens_cors(),
             limite_contagem=_inteiro("LIMITE_CONTAGEM", 10_000),
+            export_max=_inteiro("JLS_EXPORT_MAX", 1_000),
             pool_min_size=_inteiro("POOL_MIN_SIZE", 1),
             pool_max_size=_inteiro("POOL_MAX_SIZE", 10),
             jwt_secret=os.getenv("JLS_JWT_SECRET", "dev-only-jurislab-change-me-in-production"),
@@ -113,7 +125,22 @@ class Settings:
             max_trecho=_inteiro("MAX_TRECHO", 4_000),
             max_nota=_inteiro("MAX_NOTA", 2_000),
             max_consulta=_inteiro("MAX_CONSULTA", 4_000),
+            trust_proxy=_booleano("JLS_TRUST_PROXY"),
+            request_id=_booleano("JLS_REQUEST_ID"),
+            permitir_segredos_padrao=_booleano("JLS_ALLOW_DEFAULT_SECRETS"),
+            log_level=os.getenv("LOG_LEVEL", "info").strip().lower() or "info",
         )
+
+
+def configurar_logging(cfg: Settings | None = None) -> None:
+    """Aplica ``LOG_LEVEL`` uma única vez, inclusive no runtime serverless."""
+    configuracao = cfg or settings
+    nivel = getattr(logging, configuracao.log_level.upper(), logging.INFO)
+    logging.basicConfig(
+        level=nivel,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True,
+    )
 
 
 settings = Settings.from_env()
