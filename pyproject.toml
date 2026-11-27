@@ -1,3 +1,21 @@
+[project]
+name = "juris-lab"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "psycopg[binary,pool]>=3.2",
+  "pydantic>=2",
+  "PyJWT>=2.8",
+  "mangum>=0.17",
+]
+
+# O Vercel detecta pyproject.toml e ignora requirements.txt; as dependencias
+# acima sao as usadas no deploy serverless. Nao ha pacote instalavel na raiz.
+[tool.uv]
+package = false
+
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
 addopts = "-q"
