@@ -127,6 +127,9 @@ Comandos úteis: `make up`, `make down`, `make logs`, `make postgres`, `make she
 
 ## Vercel
 
+Deploy em produção: <https://juris-lab-beryl.vercel.app> (espelho da equipe: <https://juris-lab-marcelejoao7-9881.vercel.app>).
+Healthcheck: `/healthz` e status da instância: `/api/status`.
+
 O `vercel.json` já aponta para `api/index.py`. Na Vercel:
 
 1. *Add New... -> Project* e importe `JNeves07/Juris-Lab`;
